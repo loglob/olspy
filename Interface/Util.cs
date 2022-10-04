@@ -1,4 +1,3 @@
-
 namespace Olspy.Interface
 {
 	internal static class Util
@@ -23,7 +22,7 @@ namespace Olspy.Interface
 			}
 		}
 
-		public static IEnumerable<T> TryCast<T>(this IEnumerable<object?> items)
+		public static IEnumerable<T> TryCast<T>(this IEnumerable<object> items)
 		{
 			foreach (var i in items)
 			{
@@ -31,5 +30,11 @@ namespace Olspy.Interface
 					yield return x;
 			}
 		}
+
+		public static async Task<B> Map<A, B>(this Task<A> t, Func<A, B> f)
+			=> f(await t);
+
+		public static bool All(this IEnumerable<bool> bs)
+			=> bs.All(x => x);
 	}
 }
