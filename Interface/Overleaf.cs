@@ -8,6 +8,9 @@ using System.Text;
 
 namespace Olspy.Interface
 {
+	/// <summary>
+	/// An overleaf instance
+	/// </summary>
 	public class Overleaf
 	{
 		/// <summary>
@@ -20,9 +23,19 @@ namespace Olspy.Interface
 		/// </summary>
 		internal readonly HttpClient client = new HttpClient(){  };
 
+		/// <summary>
+		/// The port of the docstore service
+		/// </summary>
 		public ushort DocstorePort { get; init; } = 3016;
-		public ushort FileStorePort { get; init; } = 3009;
 
+		/// <summary>
+		/// The port of the filestore service
+		/// </summary>
+		public ushort FilestorePort { get; init; } = 3009;
+
+		/// <summary>
+		/// The port of the web frontend
+		/// </summary>
 		public ushort WebPort { get; init; } = 80;
 
 		public Overleaf(IPAddress ip)
@@ -63,7 +76,7 @@ namespace Olspy.Interface
 		/// </summary>
 		public Task<bool> Available
 			=> Task
-				.WhenAll(available(WebPort), available(DocstorePort), available(FileStorePort))
+				.WhenAll(available(WebPort), available(DocstorePort), available(FilestorePort))
 				.Map(Util.All);
 
 		/// <summary>
