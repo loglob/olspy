@@ -15,15 +15,6 @@ namespace Olspy.Interface
 			}
 		}
 
-		public static IEnumerable<T> DeNull<T>(this IEnumerable<T?> inputs) where T : class
-		{
-			foreach(var i in inputs)
-			{
-				if(i is T x)
-					yield return x;
-			}
-		}
-
 		public static IEnumerable<T> TryCast<T>(this IEnumerable<object> items)
 		{
 			foreach (var i in items)
