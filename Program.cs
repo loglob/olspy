@@ -13,11 +13,16 @@ namespace Olspy
 
 			Console.WriteLine("Which is " + (await o.Available ? "alive" : "dead"));
 
-			var p = o.Open("61f097e5d787020085e21ad8");
+			var p = o.Open("62711f70548ace008c167cb9");
 
-			foreach(var f in await p.GetFiles())
+			o.SetCredentials("test");
+
+			Console.WriteLine(await p.GetProperties());
+
+			using(var f = File.OpenWrite("temp.pdf"))
+			using(var pdf = await p.Compile())
 			{
-				Console.WriteLine($"{f.ID}: {f.Lines[0]}");
+				await pdf.CopyToAsync(f);
 			}
 		}
 

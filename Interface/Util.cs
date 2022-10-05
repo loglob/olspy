@@ -1,3 +1,5 @@
+using Newtonsoft.Json;
+
 namespace Olspy.Interface
 {
 	internal static class Util
@@ -36,5 +38,17 @@ namespace Olspy.Interface
 
 		public static bool All(this IEnumerable<bool> bs)
 			=> bs.All(x => x);
+
+		public static async Task<T> ReadAsJsonAsync<T>(this HttpResponseMessage res)
+		{
+			res.EnsureSuccessStatusCode();
+
+			using(var s = await res.Content.ReadAsStreamAsync())
+			using(var r = new StreamReader(s))
+			using(var t = new JsonTextReader(r))
+			{
+				return new JsonSerializer().Deserialize<T>(t);
+			}
+		}
 	}
 }

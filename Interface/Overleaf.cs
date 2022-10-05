@@ -3,6 +3,8 @@ using System.Diagnostics;
 using System.Net;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using System.Net.Http.Headers;
+using System.Text;
 
 namespace Olspy.Interface
 {
@@ -16,7 +18,7 @@ namespace Olspy.Interface
 		/// <summary>
 		/// The HTTP client configuration used for API requests
 		/// </summary>
-		internal readonly HttpClient client = new HttpClient(){ Timeout = TimeSpan.FromMilliseconds(500) };
+		internal readonly HttpClient client = new HttpClient(){  };
 
 		public ushort DocstorePort { get; init; } = 3016;
 		public ushort FileStorePort { get; init; } = 3009;
@@ -25,6 +27,17 @@ namespace Olspy.Interface
 
 		public Overleaf(IPAddress ip)
 			=> this.IP = ip;
+
+		/// <summary>
+		/// Sets the credentials for accessing the internal overleaf API.
+		/// </summary>
+		/// <param name="password">Configured via WEB_API_PASSWORD in variables.env</param>
+		/// <param name="username">Configured via WEB_API_USER in variables.env</param>
+		public void SetCredentials(string password, string username = "sharelatex")
+		{
+			this.client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic",
+				Convert.ToBase64String(ASCIIEncoding.UTF8.GetBytes($"{username}:{password}")));
+		}
 
 		/// <summary>
 		/// Tests for availability of the given service
@@ -38,9 +51,16 @@ namespace Olspy.Interface
 			}
 		}
 
-		public Project Open(string uuid)
-			=> new Project(this, uuid);
+		/// <summary>
+		/// Opens a project
+		/// </summary>
+		/// <param name="id">The unique identifier of the project</param>
+		public Project Open(string id)
+			=> new Project(this, id);
 
+		/// <summary>
+		/// Whether all services are available
+		/// </summary>
 		public Task<bool> Available
 			=> Task
 				.WhenAll(available(WebPort), available(DocstorePort), available(FileStorePort))
