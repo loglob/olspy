@@ -12,7 +12,7 @@ namespace Olspy
 		public int Revision { get; }
 
 		[JsonConstructor]
-		public Document(string _id, string[] lines, int rev)
+		internal Document(string _id, string[] lines, int rev)
 		{
 			this.ID = _id;
 			this.Lines = lines;

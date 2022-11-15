@@ -39,7 +39,12 @@ namespace Olspy
 		public ushort WebPort { get; init; } = 80;
 
 		public Overleaf(string host)
-			=> this.Host = host;
+		{
+			if(host is null)
+				throw new ArgumentNullException(nameof(host));
+
+			this.Host = host;
+		}
 
 		/// <summary>
 		/// Sets the credentials for accessing the internal overleaf API.
@@ -48,6 +53,11 @@ namespace Olspy
 		/// <param name="username">Configured via WEB_API_USER in variables.env</param>
 		public void SetCredentials(string password, string username = "sharelatex")
 		{
+			if(password is null)
+				throw new ArgumentNullException(nameof(password));
+			if(username is null)
+				throw new ArgumentNullException(nameof(username));
+
 			this.client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic",
 				Convert.ToBase64String(ASCIIEncoding.UTF8.GetBytes($"{username}:{password}")));
 		}
@@ -69,7 +79,12 @@ namespace Olspy
 		/// </summary>
 		/// <param name="id">The unique identifier of the project</param>
 		public Project Open(string id)
-			=> new Project(this, id);
+		{
+			if(id is null)
+				throw new ArgumentNullException(nameof(id));
+
+			return new Project(this, id);
+		}
 
 		/// <summary>
 		/// Whether all services are available
