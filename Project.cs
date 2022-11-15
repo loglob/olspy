@@ -34,7 +34,7 @@ namespace Olspy
 		/// </summary>
 		public async Task<Properties> GetProperties()
 		{
-			using(var res = await Instance.client.GetAsync($"http://{Instance.IP}:{Instance.WebPort}/internal/project/{ID}"))
+			using(var res = await Instance.client.GetAsync($"http://{Instance.Host}:{Instance.WebPort}/internal/project/{ID}"))
 			{
 				return await res.ReadAsJsonAsync<Properties>();
 			}
@@ -45,7 +45,7 @@ namespace Olspy
 		/// </summary>
 		public async Task<Document[]> GetDocuments()
 		{
-			using(var res = await Instance.client.GetAsync($"http://{Instance.IP}:{Instance.DocstorePort}/project/{ID}/doc"))
+			using(var res = await Instance.client.GetAsync($"http://{Instance.Host}:{Instance.DocstorePort}/project/{ID}/doc"))
 			{
 				return await res.ReadAsJsonAsync<Document[]>();
 			}
@@ -56,7 +56,7 @@ namespace Olspy
 		/// </summary>
 		public async Task<Stream> Compile()
 		{
-			var res = await Instance.client.GetAsync($"http://{Instance.IP}:{Instance.WebPort}/internal/project/{ID}/compile/pdf");
+			var res = await Instance.client.GetAsync($"http://{Instance.Host}:{Instance.WebPort}/internal/project/{ID}/compile/pdf");
 			res.EnsureSuccessStatusCode();
 
 			return await res.Content.ReadAsStreamAsync();

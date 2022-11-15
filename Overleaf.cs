@@ -16,7 +16,7 @@ namespace Olspy
 		/// <summary>
 		/// The IP of the overleaf server that also exposes internal APIs
 		/// </summary>
-		public readonly IPAddress IP;
+		public readonly string Host;
 
 		/// <summary>
 		/// The HTTP client configuration used for API requests
@@ -38,8 +38,8 @@ namespace Olspy
 		/// </summary>
 		public ushort WebPort { get; init; } = 80;
 
-		public Overleaf(IPAddress ip)
-			=> this.IP = ip;
+		public Overleaf(string host)
+			=> this.Host = host;
 
 		/// <summary>
 		/// Sets the credentials for accessing the internal overleaf API.
@@ -58,7 +58,7 @@ namespace Olspy
 		/// <returns>Whether the port is open and reports availability</returns>
 		private async Task<bool> available(ushort port)
 		{
-			using(var response = await client.GetAsync($"http://{IP}:{port}/status"))
+			using(var response = await client.GetAsync($"http://{Host}:{port}/status"))
 			{
 				return response.IsSuccessStatusCode;
 			}
@@ -129,7 +129,7 @@ namespace Olspy
 				else if(ips.Count > 1)
 					throw new Exception("Multiple overleaf configurations detected");
 				else
-					return new Overleaf(ips[0]);
+					return new Overleaf(ips[0].ToString());
 			}
 		}
 	}

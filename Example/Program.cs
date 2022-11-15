@@ -10,7 +10,7 @@ namespace Olspy.Example
 		{
 			// Search for a local overleaf instance
 			var o = Overleaf.RunningInstance;
-			Console.WriteLine("Loaded overleaf instance at " + o.IP);
+			Console.WriteLine("Loaded overleaf instance at " + o.Host);
 
 			// check availability
 			Console.WriteLine("Which is " + (await o.Available ? "alive" : "dead"));
