@@ -1,6 +1,6 @@
 using Newtonsoft.Json;
 
-namespace Olspy.Interface
+namespace Olspy
 {
 	internal static class Util
 	{

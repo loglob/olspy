@@ -7,7 +7,7 @@ A *very* basic interface for the internal overleaf API.
 - Retrieve some metadata about a project (name, description, etc.)
 - Retrieve the compiled PDF for a project
 
-See `Program.cs` for example usage.
+See `Example/Program.cs` for example usage.
 
 ### What it *can't* do
 - Enumerate existing projects

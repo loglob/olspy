@@ -1,4 +1,4 @@
-namespace Olspy.Interface
+namespace Olspy
 {
 	/// <summary>
 	/// An overleaf project

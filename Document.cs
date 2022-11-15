@@ -1,7 +1,7 @@
 
 using Newtonsoft.Json;
 
-namespace Olspy.Interface
+namespace Olspy
 {
 	public class Document
 	{

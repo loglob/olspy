@@ -6,7 +6,7 @@ using Newtonsoft.Json.Linq;
 using System.Net.Http.Headers;
 using System.Text;
 
-namespace Olspy.Interface
+namespace Olspy
 {
 	/// <summary>
 	/// An overleaf instance

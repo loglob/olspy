@@ -1,7 +1,7 @@
 ﻿using System;
-using Olspy.Interface;
+using Olspy;
 
-namespace Olspy
+namespace Olspy.Example
 {
 	public static class Program
 	{
