@@ -30,4 +30,4 @@ Exposing this API to the internet might cause security problems.
 
 `WEB_API_PASSWORD` can be used to bypass authentication checks and should be a hard-to-guess password.
 
-If you don't use a reverse proxy, using a more restrictive IP than 0.0.0.0 may be smart.
+If you don't use a reverse proxy, using something more restrictive than 0.0.0.0 would be advised.
