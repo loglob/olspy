@@ -5,6 +5,7 @@ namespace Olspy
 {
 	public class Document
 	{
+		[JsonProperty("_id")]
 		public string ID { get; }
 
 		public string[] Lines { get; }
