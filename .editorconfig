@@ -1,0 +1,17 @@
+root=true
+indent_style=tab
+charset=utf8
+trim_trailing_whitespace=true
+insert_final_newline=true
+
+[*.cs]
+dotnet_sort_system_directives_first = false
+csharp_space_after_keywords_in_control_flow_statements = false
+
+dotnet_naming_rule.protected_methods_should_be_camel_case.severity = suggestion
+dotnet_naming_rule.protected_methods_should_be_camel_case.symbols  = protected_methods
+dotnet_naming_rule.protected_methods_should_be_camel_case.style    = protected_method_style
+dotnet_naming_symbols.protected_methods.applicable_kinds           = method
+dotnet_naming_symbols.protected_methods.applicable_accessibilities = private, protected, private_protected
+dotnet_naming_style.protected_method_style.capitalization          = camel_case
+
