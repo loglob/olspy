@@ -7,7 +7,6 @@ using Olspy.Util;
 namespace Olspy;
 
 
-public record struct Message( ArraySegment<byte> Data, WebSocketMessageType Type );
 
 /// <summary>
 ///  Contains types for the websocket protocol

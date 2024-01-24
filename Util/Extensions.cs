@@ -3,8 +3,19 @@ using System.Text;
 
 namespace Olspy.Util;
 
+/// <summary>
+///  A complete websocket message
+/// </summary>
+public record struct Message( ArraySegment<byte> Data, WebSocketMessageType Type );
+
 public static class Extensions
 {
+	/// <summary>
+	///  Receives a websocket message split over multiple packets
+	/// </summary>
+	/// <remarks>
+	///  (!) When cancelled, the websocket is put into aborted state, blocking any subsequent method call.
+	/// </remarks>
 	public static async Task<Message> ReceiveCompleteAsync(this WebSocket ws, CancellationToken ct)
 	{
 		var chunk = new byte[10 * 1024];
@@ -26,7 +37,7 @@ public static class Extensions
 	public static Task<Message> ReceiveCompleteAsync(this WebSocket ws)
 		=> ReceiveCompleteAsync(ws, CancellationToken.None);
 
-	/// <returns> A new Uri that is identical to old, except for its scheme </returns>
+	/// <returns> A new Uri that is identical to `old`, except for its scheme </returns>
 	public static Uri WithScheme(this Uri old, string scheme)
 	{
 		var orig = old.OriginalString;
@@ -35,6 +46,9 @@ public static class Extensions
 		return new Uri(scheme + ((off < 0) ? Uri.SchemeDelimiter + orig : orig[off..]));
 	}
 
+	/// <summary>
+	///  Formats an array as a list enclosed in "[]"
+	/// </summary>
 	public static string Show<T>(this T[] arr)
 	{
 		if(arr.Length == 0)

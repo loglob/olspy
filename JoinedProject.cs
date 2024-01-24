@@ -11,7 +11,11 @@ namespace Olspy;
 /// </summary>
 public sealed class JoinedProject : IAsyncDisposable
 {
+	/// <summary>
+	///  The joined project
+	/// </summary>
 	public readonly Project Project;
+
 	// Use two cancellation tokens for a staggered close, since the websocket will get killed if any operation is cancelled
 	private readonly CancellationTokenSource sendSource = new();
 	private readonly CancellationTokenSource listenSource = new();
@@ -52,6 +56,9 @@ public sealed class JoinedProject : IAsyncDisposable
 		return new JoinedProject(project, wsc);
 	}
 
+	/// <summary>
+	///  Sends any messages in the `sendQueue` until the `sendSource` is cancelled.
+	/// </summary>
 	private async Task sendLoop()
 	{
 		try
@@ -74,47 +81,58 @@ public sealed class JoinedProject : IAsyncDisposable
 		}
 	}
 
+	/// <summary>
+	///  Listens for any websocket message until a close is received or the `listenSource` is cancelled.
+	/// If an invalid message is received, initiate closing the session.
+	/// </summary>
 	private async Task listenLoop()
 	{
-		for(;;)
+		try
 		{
-			// cancelling this receive *might* kill the socket, so the cancels are staggered
-			var msg = await socket.ReceiveCompleteAsync(listenSource.Token);
-
-			if(msg.Type == WebSocketMessageType.Close || Left)
-				break;
-
-			var data = msg.Data;
-
-			// TODO: nicer handling of invalid messages
-			if(data.Count < 2 || data[1] != (byte)':')
-				throw new FormatException("Unexpected message data, expected 1 opcode byte");
-
-			switch(data[0])
+			for(;;)
 			{
-				case Protocol.INIT_REC:
-				break;
+				// cancelling this receive *might* kill the socket, so the cancels are staggered
+				var msg = await socket.ReceiveCompleteAsync(listenSource.Token);
 
-				case Protocol.HEARTBEAT_REC:
-					sendQueue.Enqueue(new Message(data, WebSocketMessageType.Text));
-				break;
+				if(msg.Type == WebSocketMessageType.Close || Left)
+					break;
 
-				case Protocol.JOIN_PROJECT_REC:
+				var data = msg.Data;
+
+				// TODO: nicer handling of invalid messages
+				if(data.Count < 2 || data[1] != (byte)':')
+					throw new FormatException("Unexpected message data, expected 1 opcode byte");
+
+				switch(data[0])
 				{
-					var spl = Encoding.UTF8.GetString(data).Split(':', 4);
-					var cont = JsonNode.Parse(spl[^1]);
+					case Protocol.INIT_REC:
+					break;
 
-					if((string?) cont?["name"]?.AsValue() != "joinProjectResponse")
-						throw new FormatException("Argument to join project opcode has invalid name");
+					case Protocol.HEARTBEAT_REC:
+						sendQueue.Enqueue(new Message(data, WebSocketMessageType.Text));
+					break;
 
-					var arg = cont!["args"]!.AsArray()![0].Deserialize<Protocol.JoinProjectArgs>(Protocol.JsonOptions)!;
-					await joinArgs.Write(arg, listenSource.Token);
+					case Protocol.JOIN_PROJECT_REC:
+					{
+						var spl = Encoding.UTF8.GetString(data).Split(':', 4);
+						var cont = JsonNode.Parse(spl[^1]);
+
+						if((string?) cont?["name"]?.AsValue() != "joinProjectResponse")
+							throw new FormatException("Argument to join project opcode has invalid name");
+
+						var arg = cont!["args"]!.AsArray()![0].Deserialize<Protocol.JoinProjectArgs>(Protocol.JsonOptions)!;
+						await joinArgs.Write(arg, listenSource.Token);
+					}
+					break;
+
+					default:
+						throw new FormatException($"Invalid opcode '{data[0]}'");
 				}
-				break;
-
-				default:
-					throw new FormatException($"Invalid opcode '{data[0]}'");
 			}
+		}
+		finally
+		{
+			await sendSource.CancelAsync();
 		}
 	}
 
@@ -123,7 +141,11 @@ public sealed class JoinedProject : IAsyncDisposable
 		if(!Left)
 			await Leave();
 	}
-	
+
+	/// <summary>
+	///  Closes the websocket session
+	/// </summary>
+	/// <returns></returns>
 	public async Task Leave()
 	{
 		await sendSource.CancelAsync();
@@ -160,6 +182,9 @@ public sealed class JoinedProject : IAsyncDisposable
 			throw new AggregateException(exs);
 	}
 
+	/// <summary>
+	///  Waits for the server-side join handshake to complete by sending project information 
+	/// </summary>
 	public async Task<Protocol.JoinProjectArgs> CompleteJoin(CancellationToken ct)
 	{
 		var lts = CancellationTokenSource.CreateLinkedTokenSource(listenSource.Token, ct);

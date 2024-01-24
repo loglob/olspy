@@ -1,35 +1,51 @@
 ﻿using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Net.WebSockets;
-using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
-using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using System.Text.Unicode;
-using Olspy.Util;
 
 namespace Olspy;
 
-public class Project
+// Disable warning to use an arcane optimization to compile regex at compile time
+#pragma warning disable SYSLIB1045
+
+public sealed class Project
 {
+	/// <summary>
+	///  The cookie that stores Overleaf session tokens
+	/// </summary>
 	private const string SESSION_COOKIE = "sharelatex.sid";
+	
+	/// <summary>
+	///  The pattern of read/write join tokens.
+	///  (taken from Overleaf source code, could possibly change in future Overleaf versions)
+	/// </summary>
 	private static readonly Regex ReadWriteTokenPattern = new Regex("^[0-9]+[a-z]{6,12}$");
+
+	/// <summary>
+	///  The pattern of read only join tokens.
+	///  (taken from Overleaf source code, could possibly change in future Overleaf versions)
+	/// </summary>
 	private static readonly Regex ReadOnlyTokenPattern = new Regex("^[a-z]{12}$");
 
+	/// <summary>
+	///  A globally unique ID identifying this project
+	/// </summary>
 	public readonly string ID;
+
+	/// <summary>
+	///  The http client to make requests through.
+	///  Configured with base address and (possibly) proxy.
+	/// </summary>
 	private readonly HttpClient client;
-	private readonly HttpClientHandler handler;
 
 
-	private Project(string id, HttpClient client, HttpClientHandler handler)
+	private Project(string id, HttpClient client)
 	{
 		this.ID = id;
 		this.client = client;
-		this.handler = handler;
 	}
 
+	/// <returns> Whether a scheme is valid for an overleaf link </returns>
 	private static bool validScheme(string scheme)
 		=> scheme switch {
 			"http" => true,
@@ -37,6 +53,9 @@ public class Project
 			_ => false
 		};
 
+	/// <summary>
+	///  Opens a share link, which may be either read/write or read only
+	/// </summary>
 	public static async Task<Project> Open(Uri shareLink, WebProxy? proxy = null)
 	{
 		ArgumentNullException.ThrowIfNull(shareLink);
@@ -98,12 +117,16 @@ public class Project
 		// note: I don't know what `red` is relative to if the server has some base prefix
 		var id = new Regex("^/project/([0-9a-fA-F]+)$").Match(red).Groups[1].Value;
 		
-		return new Project(id, client, handler);
+		return new Project(id, client);
 	}
 
-	public static Task<Project> Open(string shareLink, WebProxy? proxy = null)
-		=> Open(new Uri(shareLink), proxy);
-
+	/// <summary>
+	///  Opens a project with a user's session token
+	/// </summary>
+	/// <param name="host"> An uri to the root of the Overleaf site </param>
+	/// <param name="ID"> A project ID </param>
+	/// <param name="session"> The value of the SESSION_COOKIE cookie </param>
+	/// <param name="proxy"> A proxy to use, if any </param>
 	public static Project Open(Uri host, string ID, string session, WebProxy? proxy = null)
 	{
 		ArgumentNullException.ThrowIfNull(host);
@@ -125,42 +148,18 @@ public class Project
 			BaseAddress = host
 		};
 
-		return new Project(ID, client, handler);
-	}
-		
-	public static Project Open(string host, string id, string sessionCookie, WebProxy? proxy = null)
-		=> Open(new Uri(host), id, sessionCookie, proxy);
-
-	private async Task<ClientWebSocket> connectSocket()
-	{
-		var time = (long)(DateTime.UtcNow - DateTime.UnixEpoch).TotalMilliseconds;
-		var sock = await client.GetAsync($"socket.io/1/?projectId={ID}&t={time}");
-
-		if(! sock.IsSuccessStatusCode)
-			throw new Exception($"Got status {sock.StatusCode} trying to retrieve socket metadata for project");
-
-		var cont = await sock.Content.ReadAsStringAsync();
-
-		var key = cont.Split(':')[0];
-
-		var wsc = new ClientWebSocket();
-
-
-		await wsc.ConnectAsync(new Uri(client.BaseAddress!, $"socket.io/1/websocket/{key}?projectId={ID}").WithScheme("wss"), client, CancellationToken.None);
-		var buf = new byte[3];
-		var rec = await wsc.ReceiveAsync(new ArraySegment<byte>(buf), CancellationToken.None);
-
-		if(!rec.EndOfMessage || rec.Count != 3 || !Enumerable.SequenceEqual(buf, new[]{ (byte)'1', (byte)':', (byte)':' }))
-			throw new Exception($"Invalid handshake message, expected \"1::\"");
-		if(rec.CloseStatus is not null)
-			throw new Exception("WebSocket closed immediately");
-
-		return wsc;
+		return new Project(ID, client);
 	}
 
+	/// <summary>
+	///  Initializes a websocket instance for this project
+	/// </summary>
 	public Task<JoinedProject> Join()
 		=> JoinedProject.Connect(this, client);
 
+	/// <summary>
+	///  Retrieves general project information, containing its file structure
+	/// </summary>
 	public async Task<Protocol.JoinProjectArgs> GetInfo()
 	{
 		await using var jp = await Join();
