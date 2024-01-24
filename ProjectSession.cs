@@ -10,7 +10,7 @@ namespace Olspy;
 /// <summary>
 ///  A session of the websocket API for a project
 /// </summary>
-public sealed class JoinedProject : IAsyncDisposable
+public sealed class ProjectSession : IAsyncDisposable
 {
 	/// <summary>
 	///  The joined project
@@ -32,7 +32,7 @@ public sealed class JoinedProject : IAsyncDisposable
 	public bool Left
 		=> socket.CloseStatus is not null;
 
-	private JoinedProject(Project project, WebSocket socket)
+	private ProjectSession(Project project, WebSocket socket)
 	{
 		this.Project = project;
 		this.socket = socket;
@@ -40,7 +40,7 @@ public sealed class JoinedProject : IAsyncDisposable
 		this.sender = sendLoop();
 	}
 
-	internal static async Task<JoinedProject> Connect(Project project, HttpClient client)
+	internal static async Task<ProjectSession> Connect(Project project, HttpClient client)
 	{
 		var time = (long)(DateTime.UtcNow - DateTime.UnixEpoch).TotalMilliseconds;
 		var sock = await client.GetAsync($"socket.io/1/?projectId={project.ID}&t={time}");
@@ -56,7 +56,7 @@ public sealed class JoinedProject : IAsyncDisposable
 
 		await wsc.ConnectAsync(new Uri(client.BaseAddress!, $"socket.io/1/websocket/{key}?projectId={project.ID}").WithScheme("wss"), client, CancellationToken.None);
 
-		return new JoinedProject(project, wsc);
+		return new ProjectSession(project, wsc);
 	}
 
 	/// <summary>

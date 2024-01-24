@@ -154,8 +154,8 @@ public sealed class Project
 	/// <summary>
 	///  Initializes a websocket instance for this project
 	/// </summary>
-	public Task<JoinedProject> Join()
-		=> JoinedProject.Connect(this, client);
+	public Task<ProjectSession> Join()
+		=> ProjectSession.Connect(this, client);
 
 	/// <summary>
 	///  Retrieves general project information, containing its file structure
