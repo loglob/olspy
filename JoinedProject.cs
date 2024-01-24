@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -22,9 +23,11 @@ public sealed class JoinedProject : IAsyncDisposable
 	private readonly Task listener;
 	private readonly Task sender;
 	private readonly WebSocket socket;
+	private uint packetNumber = 0;
 
 	private readonly SharedQueue<Message> sendQueue = new();
 	private readonly Shared<Protocol.JoinProjectArgs> joinArgs = new();
+	private readonly ConcurrentDictionary<uint, Shared<JsonNode?>> rpcResults = new();
 
 	public bool Left
 		=> socket.CloseStatus is not null;
@@ -76,6 +79,8 @@ public sealed class JoinedProject : IAsyncDisposable
 		}
 		finally
 		{
+			// does nothing but is observable in listenLoop()
+			await sendSource.CancelAsync();
 			// The listener will catch the response close handshake
 			await socket.CloseOutputAsync(WebSocketCloseStatus.EndpointUnavailable, null, CancellationToken.None);
 		}
@@ -91,31 +96,46 @@ public sealed class JoinedProject : IAsyncDisposable
 		{
 			for(;;)
 			{
+				Message msg;
+
 				// cancelling this receive *might* kill the socket, so the cancels are staggered
-				var msg = await socket.ReceiveCompleteAsync(listenSource.Token);
+				try
+				{
+					msg = await socket.ReceiveCompleteAsync(listenSource.Token);				
+				}
+				catch(WebSocketException) when(sendSource.IsCancellationRequested)
+				{
+					// Closure doesn't work right and sometimes triggers
+					// "The remote party closed the WebSocket connection without completing the close handshake"
+					// not sure if it's my fault, .NET's or the Overleaf's
+					// just ignore this exception since we're closing the socket anyways
+					return;	
+				}
 
 				if(msg.Type == WebSocketMessageType.Close || Left)
 					break;
 
-				var data = msg.Data;
+				var dat = msg.Data;
 
 				// TODO: nicer handling of invalid messages
-				if(data.Count < 2 || data[1] != (byte)':')
+				if(dat[1] != ':')
 					throw new FormatException("Unexpected message data, expected 1 opcode byte");
 
-				switch(data[0])
+				switch(dat[0])
 				{
 					case Protocol.INIT_REC:
 					break;
 
 					case Protocol.HEARTBEAT_REC:
-						sendQueue.Enqueue(new Message(data, WebSocketMessageType.Text));
+						sendQueue.Enqueue(new Message(dat, WebSocketMessageType.Text));
 					break;
 
 					case Protocol.JOIN_PROJECT_REC:
 					{
-						var spl = Encoding.UTF8.GetString(data).Split(':', 4);
-						var cont = JsonNode.Parse(spl[^1]);
+						if(dat[2] != ':' || dat[3] != ':')
+							throw new FormatException("Invalid joinProjectResponse message");
+
+						var cont = JsonNode.Parse(dat.Slice(4));
 
 						if((string?) cont?["name"]?.AsValue() != "joinProjectResponse")
 							throw new FormatException("Argument to join project opcode has invalid name");
@@ -125,8 +145,32 @@ public sealed class JoinedProject : IAsyncDisposable
 					}
 					break;
 
+					case Protocol.RPC_RESULT_REC:
+					{
+						if(dat[2] != ':' || dat[3] != ':')
+							throw new FormatException("Invalid joinProjectResponse message");
+
+						int i;
+						
+						for (i = 0;;)
+						{
+							if(! char.IsDigit((char)dat[4 + i]))
+								throw new FormatException("Expected packet number");
+
+							if(dat[4 + ++i] == '+')
+								break;
+						}
+
+						uint pNum = uint.Parse(dat.Slice(4, i));
+						var data = JsonNode.Parse(dat.Slice(i + 5));
+
+						if(rpcResults.TryRemove(pNum, out var sh))
+							await sh.Write(data);
+					}
+					break;
+
 					default:
-						throw new FormatException($"Invalid opcode '{data[0]}'");
+						throw new FormatException($"Invalid opcode '{dat[0]}'");
 				}
 			}
 		}
@@ -135,6 +179,28 @@ public sealed class JoinedProject : IAsyncDisposable
 			await sendSource.CancelAsync();
 		}
 	}
+
+	/// <summary>
+	///  Sends an RPC message, then awaits a response
+	/// </summary>
+	private async Task<JsonNode?> sendRPC(string kind, object[] args)
+	{
+		uint n = Interlocked.Increment(ref packetNumber);
+		var obj = new { name = kind, args };
+
+		// set up register to take result
+		var res = new Shared<JsonNode?>();
+		if(! rpcResults.TryAdd(n, res))
+			throw new InvalidOperationException("Duplicate message number");
+
+		var dat = $"{(char)Protocol.RPC_SEND}:{n}+::" + JsonSerializer.Serialize(obj);
+
+		sendQueue.Enqueue(new( Encoding.UTF8.GetBytes(dat), WebSocketMessageType.Text ));
+
+		var tick = new CancellationTokenSource(3000);
+		return await res.Read(CancellationTokenSource.CreateLinkedTokenSource(tick.Token, listenSource.Token, sendSource.Token).Token);
+	}
+
 
 	public async ValueTask DisposeAsync()
 	{
@@ -195,4 +261,11 @@ public sealed class JoinedProject : IAsyncDisposable
 	public async Task<Protocol.JoinProjectArgs> CompleteJoin()
 		=> await joinArgs.Read(listenSource.Token);
 
+	public async Task<string[]> GetDocumentByID(string ID)
+	{
+		var req = await sendRPC(Protocol.RPC_JOIN_DOCUMENT, [ ID, new{ encodeRanges = true } ]);
+		await sendRPC(Protocol.RPC_LEAVE_DOCUMENT, [ ID ]);
+
+		return req!.AsArray()![1]!.AsArray()!.Deserialize<string[]>()!;
+	}
 }

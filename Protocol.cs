@@ -6,8 +6,6 @@ using Olspy.Util;
 
 namespace Olspy;
 
-
-
 /// <summary>
 ///  Contains types for the websocket protocol
 /// </summary>
@@ -176,10 +174,16 @@ public static class Protocol
 		int ProtocolVersion
 	);
 
-	public const byte INIT_REC = (byte)'1';
-	public const byte HEARTBEAT_SEND = (byte)'2';
 	public const byte HEARTBEAT_REC = (byte)'2';
+	public const byte HEARTBEAT_SEND = (byte)'2';
+	public const byte INIT_REC = (byte)'1';
 	public const byte JOIN_PROJECT_REC = (byte)'5';
+	public const byte RPC_RESULT_REC = (byte)'6';
+	public const byte RPC_SEND = (byte)'5';
+	public const byte UPDATE_POS_SEND = (byte)'5';
+
+	public const string RPC_JOIN_DOCUMENT = "joinDoc";
+	public const string RPC_LEAVE_DOCUMENT = "leaveDoc";
 
 	public static readonly JsonSerializerOptions JsonOptions = new() {
 		PropertyNamingPolicy = JsonNamingPolicy.CamelCase

@@ -6,7 +6,11 @@ namespace Olspy.Util;
 /// <summary>
 ///  A complete websocket message
 /// </summary>
-public record struct Message( ArraySegment<byte> Data, WebSocketMessageType Type );
+public record struct Message( ArraySegment<byte> Data, WebSocketMessageType Type )
+{
+	public override readonly string ToString()
+		=> Encoding.UTF8.GetString(Data);
+}
 
 public static class Extensions
 {
@@ -68,4 +72,5 @@ public static class Extensions
 		sb.Append(" ]");
 		return sb.ToString();
 	}
+
 }
