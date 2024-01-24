@@ -261,11 +261,17 @@ public sealed class ProjectSession : IAsyncDisposable
 	public async Task<Protocol.JoinProjectArgs> CompleteJoin()
 		=> await joinArgs.Read(listenSource.Token);
 
+	/// <summary>
+	///  Resolves a document ID
+	/// </summary>
+	/// <param name="ID"> A file ID found in the project information </param>
+	/// <returns> The lines of that document </returns>
 	public async Task<string[]> GetDocumentByID(string ID)
 	{
 		var req = await sendRPC(Protocol.RPC_JOIN_DOCUMENT, [ ID, new{ encodeRanges = true } ]);
 		await sendRPC(Protocol.RPC_LEAVE_DOCUMENT, [ ID ]);
 
+		// TODO: handle lookup failure, figure out what the other entries do
 		return req!.AsArray()![1]!.AsArray()!.Deserialize<string[]>()!;
 	}
 }

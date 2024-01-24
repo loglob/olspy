@@ -1,4 +1,5 @@
 using System.Net.WebSockets;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -26,7 +27,7 @@ public static class Protocol
 	///  A deleted file
 	/// </summary>
 	/// <param name="DeletedAt"> UTC timestamp of deletion </param>
-	public record DeletedFileInfo(
+	public sealed record DeletedFileInfo(
 		string ID,
 		string Name,
 		DateTime DeletedAt
@@ -38,7 +39,7 @@ public static class Protocol
 	/// <param name="LinkedFileData"> TODO </param>
 	/// <param name="Created"> UTC timestamp of creation </param>
 	/// <returns></returns>
-	public record FileRefInfo(
+	public sealed record FileRefInfo(
 		string ID,
 		string Name,
 		// TODO: find this type
@@ -53,21 +54,66 @@ public static class Protocol
 	/// <param name="FileRefs"> Binary files in this folder </param>
 	/// <param name="Docs"> Editable files in this folder </param>
 	/// <returns></returns>
-	public record FolderInfo(
+	public sealed record FolderInfo(
 		string ID,
 		string Name,
 		FolderInfo[] Folders,
 		FileRefInfo[] FileRefs,
 		FileInfo[] Docs
-	) : FileInfo(ID, Name) {
+	) : FileInfo(ID, Name)
+	{
 		public override string ToString()
 			=> $"FolderInfo( ID = {ID}, Name = {Name}, Folders = {Folders.Show()}, FileRefs = {FileRefs.Show()}, Docs = {Docs.Show()} )";
+
+		/// <summary>
+		///  Resolves a '/'-separated path.
+		/// </summary>
+		/// <param name="path"> The path. May be either absolute or relative </param>
+		/// <returns> The file,document or folder at that location, or null if no such file exists </returns>
+		public FileInfo? Lookup(string path)
+		{
+			var xs = new ArraySegment<string>(path.Split('/'));
+
+			return Lookup(path[0] == '/' ? xs.Slice(1) : xs);
+		}
+
+		public FileInfo? Lookup(ArraySegment<string> path)
+		{
+			if(path.Count == 0 || (path.Count == 1 && path[0].Length == 0)) // trailing '/'
+				return this;
+
+			var p0 = path[0];
+			var folder = Folders.FirstOrDefault(f => f.Name == p0);
+
+			if(folder is not null)
+				return folder.Lookup(path.Slice(1));
+			if(path.Count > 1)
+				return null;
+			
+			return FileRefs.FirstOrDefault(f => f.Name == p0) ?? Docs.FirstOrDefault(f => f.Name == p0);
+		}
+	
+		/// <summary>
+		///  Lists all files with their paths relative to this folder, i.e. not including its name
+		/// </summary>
+		public IEnumerable<(string path, FileInfo file)> List()
+			=> Docs
+				.Concat(FileRefs)
+				.Select(f => (f.Name, f))
+				.Concat(Folders.SelectMany(d => d.List()
+					.Select(pf => (d.Name + "/" + pf.Item1, pf.Item2))));
+
+		/// <summary>
+		///  Lists all files in the folder and its sub-folders, recursively
+		/// </summary>
+		public IEnumerable<FileInfo> Files()
+			=> Docs.Concat(FileRefs).Concat(Folders.SelectMany(d => d.Files()));
 	}
 
 	/// <summary>
 	///  A user account
 	/// </summary>
-	/// <param name="Privileges"> The permissions of this user. Possible values: readAndWrite, owner </param>
+	/// <param name="Privileges"> The permissions of this user. Observed values: readAndWrite, owner </param>
 	/// <param name="SignUpDate"> UTC timestamp of signup </param>
 	/// <returns></returns>
 	public record UserInfo(
