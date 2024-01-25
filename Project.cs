@@ -16,6 +16,8 @@ public sealed class Project
 	/// </summary>
 	private const string SESSION_COOKIE = "sharelatex.sid";
 	
+	private const string CSRF_HEADER = "X-CSRF-TOKEN";
+
 	/// <summary>
 	///  The pattern of read/write join tokens.
 	///  (taken from Overleaf source code, could possibly change in future Overleaf versions)
@@ -29,6 +31,9 @@ public sealed class Project
 	private static readonly Regex ReadOnlyTokenPattern = new("^[a-z]{12}$");
 
 	private static readonly Regex CsrfMetaTag = new("<meta +name=\"ol-csrfToken\" *content=\"([^\"]+)\" *>");
+
+	private static string getCsrf(string html)
+		=> CsrfMetaTag.Match(html).Groups[1].Value;
 
 	/// <summary>
 	///  A globally unique ID identifying this project
@@ -100,10 +105,9 @@ public sealed class Project
 			throw new Exception("Did not receive a session cookie from share link");
 
 		// note: reading entire body into string first is suboptimal, but the response is ~30K so it doesn't really matter
-		var reqC = await req.Content.ReadAsStringAsync();
-		var csrf = CsrfMetaTag.Match(reqC).Groups[1].Value;
+		var csrf = getCsrf(await req.Content.ReadAsStringAsync());
 
-		client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", csrf);
+		client.DefaultRequestHeaders.Add(CSRF_HEADER, csrf);
 
 		var grant = await client.PostAsJsonAsync(
 			shareLink.AbsolutePath + "/grant",
@@ -158,11 +162,52 @@ public sealed class Project
 			throw new Exception("Failed to load project page; Are the credentials correct?");
 
 		// note: reading into string is suboptimal, the page is ~70K
-		var data = await doc.Content.ReadAsStringAsync();
-		var csrf = CsrfMetaTag.Match(data).Groups[1].Value;
+		var csrf = getCsrf(await doc.Content.ReadAsStringAsync());
 
-		client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", csrf);
+		client.DefaultRequestHeaders.Add(CSRF_HEADER, csrf);
 
+		return new Project(ID, client);
+	}
+
+	public static async Task<Project> Open(Uri host, string ID, string email, string password, WebProxy? proxy = null)
+	{
+		ArgumentNullException.ThrowIfNull(host);
+		ArgumentNullException.ThrowIfNull(ID);
+		ArgumentNullException.ThrowIfNull(email);
+		ArgumentNullException.ThrowIfNull(password);
+
+		if(! ID.All(char.IsAsciiHexDigitLower) || ID.Length == 0)
+			throw new FormatException($"Expected a hexadecimal project ID, got \"{ID}\"");
+		if(! validScheme(host.Scheme))
+			throw new FormatException($"Illegal URI scheme '{host.Scheme}'");
+
+		var handler = new HttpClientHandler() {
+			Proxy = proxy ,
+			UseProxy = proxy is not null
+		};
+		var client = new HttpClient(handler) {
+			BaseAddress = host
+		};
+
+		var loginPage = await client.GetAsync("login");
+
+		if(! loginPage.IsSuccessStatusCode)
+			throw new Exception($"Could not GET login page, got code {loginPage.StatusCode}. Is the host URI correct?");
+
+		var csrf = getCsrf(await loginPage.Content.ReadAsStringAsync());
+		client.DefaultRequestHeaders.Add(CSRF_HEADER, csrf);
+
+		var login = await client.PostAsJsonAsync("login", new{
+			_csrf = csrf,
+			email,
+			password
+		});
+
+		if(! login.IsSuccessStatusCode)
+			throw new Exception($"Failed to log in with code {login.StatusCode}. Are the credentials correct?");
+		if(handler.CookieContainer.GetAllCookies()[SESSION_COOKIE] is null)
+			throw new Exception("Did not receive a session cookie after login");
+		
 		return new Project(ID, client);
 	}
 
