@@ -20,15 +20,15 @@ public sealed class Project
 	///  The pattern of read/write join tokens.
 	///  (taken from Overleaf source code, could possibly change in future Overleaf versions)
 	/// </summary>
-	private static readonly Regex ReadWriteTokenPattern = new Regex("^[0-9]+[a-z]{6,12}$");
+	private static readonly Regex ReadWriteTokenPattern = new("^[0-9]+[a-z]{6,12}$");
 
 	/// <summary>
 	///  The pattern of read only join tokens.
 	///  (taken from Overleaf source code, could possibly change in future Overleaf versions)
 	/// </summary>
-	private static readonly Regex ReadOnlyTokenPattern = new Regex("^[a-z]{12}$");
+	private static readonly Regex ReadOnlyTokenPattern = new("^[a-z]{12}$");
 
-	private static readonly Regex CsrfMetaTag = new Regex("<meta +name=\"ol-csrfToken\" *content=\"([^\"]+)\" *>");
+	private static readonly Regex CsrfMetaTag = new("<meta +name=\"ol-csrfToken\" *content=\"([^\"]+)\" *>");
 
 	/// <summary>
 	///  A globally unique ID identifying this project
@@ -37,7 +37,7 @@ public sealed class Project
 
 	/// <summary>
 	///  The http client to make requests through.
-	///  Configured with base address and (possibly) proxy.
+	///  Configured with base address, (possibly) a proxy and a CSRF token header.
 	/// </summary>
 	private readonly HttpClient client;
 
@@ -131,7 +131,7 @@ public sealed class Project
 	/// <param name="ID"> A project ID </param>
 	/// <param name="session"> The value of the SESSION_COOKIE cookie </param>
 	/// <param name="proxy"> A proxy to use, if any </param>
-	public static Project Open(Uri host, string ID, string session, WebProxy? proxy = null)
+	public static async Task<Project> Open(Uri host, string ID, string session, WebProxy? proxy = null)
 	{
 		ArgumentNullException.ThrowIfNull(host);
 		ArgumentNullException.ThrowIfNull(ID);
@@ -151,6 +151,17 @@ public sealed class Project
 		var client = new HttpClient(handler) {
 			BaseAddress = host
 		};
+
+		var doc = await client.GetAsync($"project/{ID}");
+
+		if(! doc.IsSuccessStatusCode)
+			throw new Exception("Failed to load project page; Are the credentials correct?");
+
+		// note: reading into string is suboptimal, the page is ~70K
+		var data = await doc.Content.ReadAsStringAsync();
+		var csrf = CsrfMetaTag.Match(data).Groups[1].Value;
+
+		client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", csrf);
 
 		return new Project(ID, client);
 	}
