@@ -1,6 +1,7 @@
 ﻿using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 namespace Olspy;
@@ -27,6 +28,8 @@ public sealed class Project
 	/// </summary>
 	private static readonly Regex ReadOnlyTokenPattern = new Regex("^[a-z]{12}$");
 
+	private static readonly Regex CsrfMetaTag = new Regex("<meta +name=\"ol-csrfToken\" *content=\"([^\"]+)\" *>");
+
 	/// <summary>
 	///  A globally unique ID identifying this project
 	/// </summary>
@@ -37,7 +40,6 @@ public sealed class Project
 	///  Configured with base address and (possibly) proxy.
 	/// </summary>
 	private readonly HttpClient client;
-
 
 	private Project(string id, HttpClient client)
 	{
@@ -99,13 +101,15 @@ public sealed class Project
 
 		// note: reading entire body into string first is suboptimal, but the response is ~30K so it doesn't really matter
 		var reqC = await req.Content.ReadAsStringAsync();
-		var csrf = new Regex("\"csrfToken\" *: *\"([a-zA-Z0-9=_-]+)\"").Match(reqC).Groups[1].Value;
+		var csrf = CsrfMetaTag.Match(reqC).Groups[1].Value;
 
-		// if this isn't application/json, we get a 403
-		var grant = await client.SendAsync(new HttpRequestMessage(HttpMethod.Post, shareLink.AbsolutePath + "/grant") {
-			Content = new StringContent($"{{ \"_csrf\": \"{csrf}\", \"confirmedByUser\": false }}", new MediaTypeHeaderValue("application/json"))
-		});
-		
+		client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", csrf);
+
+		var grant = await client.PostAsJsonAsync(
+			shareLink.AbsolutePath + "/grant",
+			new{ _csrf = csrf, confirmedByUser = false }
+		);
+
 		if(! grant.IsSuccessStatusCode)
 			throw new Exception($"Request for session grant did not succeed, got {grant.StatusCode}");
 
@@ -165,5 +169,44 @@ public sealed class Project
 		await using var jp = await Join();
 
 		return await jp.CompleteJoin();
+	}
+
+	/// <summary>
+	///  Compiles the project
+	/// </summary>
+	/// <param name="rootDoc"> The tex document to use as main file </param>
+	/// <param name="draft"> Whether to run a draft compile </param>
+	/// <param name="check"> Observed values: silent </param>
+	/// <param name="incremental"></param>
+	/// <param name="stopOnFirstError"> Whether to stop on error or continue compiling </param>
+	/// <returns></returns>
+	public async Task<Protocol.CompileInfo> Compile(string rootDoc, bool draft = false, string check = "silent", bool incremental = true, bool stopOnFirstError = false)
+	{
+		var res = await client.PostAsJsonAsync($"project/{ID}/compile?",
+			new{ rootDoc_id = rootDoc, draft, check, incrementalCompilesEnabled = incremental, stopOnFirstError });
+
+		if(! res.IsSuccessStatusCode)
+			throw new Exception($"Bad status code requesting compile: got {res.StatusCode}");
+		
+		var json = await res.Content.ReadFromJsonAsync<JsonObject>();
+
+		if(json is null || (string?)json["status"] != "success")
+			throw new Exception("compile request did not succeed");
+
+		return json.Deserialize<Protocol.CompileInfo>(Protocol.JsonOptions)!;
+	}
+
+	/// <summary>
+	///  Retrieves a file from a previously successful compilation
+	/// </summary>
+	/// <param name="f"> A file listed in the record returned by Compile() </param>
+	public async Task<HttpContent> GetFile(Protocol.OutputFile f)
+	{
+		var resp = await client.GetAsync($"project/{ID}/build/{f.Build}/output/{f.Path}");
+
+		if(! resp.IsSuccessStatusCode)
+			throw new Exception("Failed to GET compilation result");
+		
+		return resp.Content;
 	}
 }

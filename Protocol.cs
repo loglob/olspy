@@ -1,5 +1,3 @@
-using System.Net.WebSockets;
-using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -116,7 +114,7 @@ public static class Protocol
 	/// <param name="Privileges"> The permissions of this user. Observed values: readAndWrite, owner </param>
 	/// <param name="SignUpDate"> UTC timestamp of signup </param>
 	/// <returns></returns>
-	public record UserInfo(
+	public sealed record UserInfo(
 		[property: JsonPropertyName("_id")]
 		string ID,
 		[property: JsonPropertyName("first_name")]
@@ -145,7 +143,7 @@ public static class Protocol
 	/// <param name="Mendeley"></param>
 	/// <param name="TrackChangesVisible"></param>
 	/// <param name="SymbolPalette"></param>
-	public record ProjectFeatures(
+	public sealed record ProjectFeatures(
 		int Collaborators,
 		bool Versioning,
 		bool Dropbox,
@@ -167,7 +165,7 @@ public static class Protocol
 	/// </summary>
 	/// <param name="ID"> The same ID as the corresponding Project object </param>
 	/// <param name="Name"> Human-Readable project name </param>
-	/// <param name="RootDocID"> Folder ID for the root folder </param>
+	/// <param name="RootDocID"> The main file to use for compiling by default </param>
 	/// <param name="RootFolder"> The folder(s) containing all other files </param>
 	/// <param name="PublicAccessLevel"> Observed values: tokenBased </param>
 	/// <param name="DropboxEnabled"> TODO </param>
@@ -181,7 +179,7 @@ public static class Protocol
 	/// <param name="Features"> TODO </param>
 	/// <param name="TrackChangesState"> TODO </param>
 	/// <returns></returns>
-	public record ProjectInfo(
+	public sealed record ProjectInfo(
 		[property: JsonPropertyName("_id")]
 		string ID,
 		string Name,
@@ -204,21 +202,68 @@ public static class Protocol
 		bool TrackChangesState
 	);
 
-	/// <summary>
-	/// 
-	/// </summary>
 	/// <param name="PublicID"></param>
 	/// <param name="Project"></param>
 	/// <param name="PermissionsLevel"></param>
 	/// <param name="ProtocolVersion"> Observed values: 2 </param>
-	/// <returns></returns>
-	public record JoinProjectArgs(
+	public sealed record JoinProjectArgs(
 		[property: JsonPropertyName("publicId")]
 		string PublicID,
 		ProjectInfo Project,
 		string PermissionsLevel,
 		int ProtocolVersion
 	);
+
+	/// <summary>
+	///  A file created by a compilation
+	/// </summary>
+	/// <param name="Path">
+	/// 	The filename that was created, relative to the output directory
+	/// </param>
+	/// <param name="Build"> The build ID that produced this file </param>
+	/// <param name="Ranges"> TODO: find this type </param>
+	/// <param name="Size"> The size of a PDF in bytes </param>
+	/// <param name="CreatedAt"> Timestamp for this compilation, only on PDFs </param>
+	public record OutputFile(
+		string Path,
+		string Build,
+		object[]? Ranges = null,
+		int? Size = null,
+		DateTime? CreatedAt = null
+	);
+
+	/// <summary>
+	///  Duration of the individual compile steps
+	/// </summary>
+	/// <param name="Sync"></param>
+	/// <param name="Compile"></param>
+	/// <param name="Output"></param>
+	/// <param name="Total"> The total, end-to-end compile time </param>
+	public sealed record Timings(
+		int Sync,
+		int Compile,
+		int Output,
+		[property: JsonPropertyName("CompileE2E")]
+		int Total
+	);
+
+	/// <summary>
+	///  Information returned by a compile API call
+	/// </summary>
+	/// <param name="OutputFiles"></param>
+	/// <param name="CompileGroup"> Observed values: standard </param>
+	/// <param name="Stats"> TODO: more precise type </param>
+	/// <param name="Timings"></param>
+	/// <returns></returns>
+	public sealed record CompileInfo(
+		OutputFile[] OutputFiles,
+		string CompileGroup,
+		Dictionary<string, int> Stats,
+		Timings Timings
+	) {
+		public OutputFile PDF
+			=> OutputFiles.Where(f => f.Path.EndsWith(".pdf")).Single();
+	}
 
 	public const byte HEARTBEAT_REC = (byte)'2';
 	public const byte HEARTBEAT_SEND = (byte)'2';
