@@ -29,7 +29,7 @@ public sealed class ProjectSession : IAsyncDisposable
 
 	private readonly SharedQueue<Message> sendQueue = new();
 	private readonly Shared<Protocol.JoinProjectArgs> joinArgs = new();
-	private readonly ConcurrentDictionary<uint, Shared<JsonNode>> rpcResults = new();
+	private readonly ConcurrentDictionary<uint, Shared<JsonArray>> rpcResults = new();
 
 	public bool Left
 		=> socket.CloseStatus is not null;
@@ -148,9 +148,12 @@ public sealed class ProjectSession : IAsyncDisposable
 						var data = pkt.JsonPayload ?? throw new FormatException("Payload of ACK packet was null");
 
 						if(rpcResults.TryRemove(pNum, out var sh))
-							sh.Write(data);
+							sh.Write(data is JsonArray a ? a : []);
 					}
 					break;
+
+					case OpCode.DISCONNECT:
+						return;
 
 					default:
 						throw new NotImplementedException($"Unhandled opcode: {pkt.OpCode}");
@@ -166,13 +169,13 @@ public sealed class ProjectSession : IAsyncDisposable
 	/// <summary>
 	///  Sends an RPC message, then awaits a response
 	/// </summary>
-	private async Task<JsonNode?> sendRPC(string kind, object[] args)
+	private async Task<JsonArray> sendRPC(string kind, object[] args)
 	{
 		uint n = Interlocked.Increment(ref packetNumber);
 		var obj = new { name = kind, args };
 
 		// set up register to take result
-		var res = new Shared<JsonNode>();
+		var res = new Shared<JsonArray>();
 		if(! rpcResults.TryAdd(n, res))
 			throw new InvalidOperationException("Duplicate message number");
 
@@ -250,13 +253,18 @@ public sealed class ProjectSession : IAsyncDisposable
 	/// </summary>
 	/// <param name="ID"> A file ID found in the project information </param>
 	/// <returns> The lines of that document </returns>
+	/// <exception cref="OverleafException"> When the server returns an error message, e.g. when the file ID doesn't exist </exception>
 	public async Task<string[]> GetDocumentByID(string ID)
 	{
 		var req = await sendRPC(Protocol.RPC_JOIN_DOCUMENT, [ ID, new{ encodeRanges = true } ]);
+
+		if(req[0] is not null)
+			throw new OverleafException("Failed document ID lookup", req[0]!);
+
 		await sendRPC(Protocol.RPC_LEAVE_DOCUMENT, [ ID ]);
 
-		// TODO: handle lookup failure, figure out what the other entries do
-		var lines = req!.AsArray()![1]!.AsArray()!.Deserialize<string[]>()!;
+		// TODO: figure out what the other entries do
+		var lines = req[1]!.AsArray()!.Deserialize<string[]>()!;
 
 		for (int i = 0; i < lines.Length; i++)
 			lines[i] = Protocol.UnMangle(lines[i]);
