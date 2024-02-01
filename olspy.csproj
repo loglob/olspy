@@ -4,10 +4,17 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageVersion>2.0.0</PackageVersion>
+    <Authors>loglob</Authors>
+    <RepositoryUrl>https://github.com/loglob/olspy</RepositoryUrl>
+    <RepositoryBranch>v2</RepositoryBranch>
+    <Description>Allows basic read-only API access to an overleaf instance</Description>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="HtmlAgilityPack" Version="1.11.57" />
+    <None Include="README.md" Pack="true" PackagePath="/"/>
   </ItemGroup>
 
 </Project>
