@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks.Dataflow;
 
 namespace Olspy;
 
@@ -39,6 +40,11 @@ public sealed class Project
 	///  A globally unique ID identifying this project
 	/// </summary>
 	public readonly string ID;
+
+	/// <summary>
+	///  Cached project information
+	/// </summary>
+	internal Protocol.JoinProjectArgs? info = null;
 
 	/// <summary>
 	///  The http client to make requests through.
@@ -220,11 +226,16 @@ public sealed class Project
 	/// <summary>
 	///  Retrieves general project information, containing its file structure
 	/// </summary>
-	public async Task<Protocol.JoinProjectArgs> GetInfo()
+	/// <param name="cache"> If false, do not return cached information but always make a new web request </param>
+	public async ValueTask<Protocol.JoinProjectArgs> GetInfo(bool cache = true)
 	{
-		await using var jp = await Join();
-
-		return await jp.CompleteJoin();
+		if(!cache || info is null)
+		{
+			await using var jp = await Join();
+			return await jp.GetProjectInfo();
+		}
+		else
+			return info;
 	}
 
 	/// <summary>
@@ -256,7 +267,7 @@ public sealed class Project
 	///  Retrieves a file from a previously successful compilation
 	/// </summary>
 	/// <param name="f"> A file listed in the record returned by Compile() </param>
-	public async Task<HttpContent> GetFile(Protocol.OutputFile f)
+	public async Task<HttpContent> GetOutFile(Protocol.OutputFile f)
 	{
 		var resp = await client.GetAsync($"project/{ID}/build/{f.Build}/output/{f.Path}");
 
@@ -264,5 +275,11 @@ public sealed class Project
 			throw new Exception("Failed to GET compilation result");
 		
 		return resp.Content;
+	}
+
+	public async Task<string[]> GetDocumentByID(string docID)
+	{
+		await using var s = await Join();
+		return await s.GetDocumentByID(docID);
 	}
 }

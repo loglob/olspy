@@ -135,7 +135,10 @@ public sealed class ProjectSession : IAsyncDisposable
 						if(name != RPC_JOIN_PROJECT)
 							throw new NotImplementedException($"Unhandled server-side EVENT '{name}'");
 
-						joinArgs.Write(args[0].Deserialize<JoinProjectArgs>(JsonOptions)!);
+						var v = args[0].Deserialize<JoinProjectArgs>(JsonOptions)!;
+
+						Project.info = v;
+						joinArgs.Write(v);
 					}
 					break;
 
@@ -230,7 +233,7 @@ public sealed class ProjectSession : IAsyncDisposable
 
 	/// <summary>
 	///  Retrieves the project information 
-	///  Waits for the server-side join handshake to complete by sending project information 
+	///  Waits for the server-side join handshake to complete which sends project information.
 	/// </summary>
 	public async Task<Protocol.JoinProjectArgs> GetProjectInfo(CancellationToken ct)
 	{
@@ -239,7 +242,7 @@ public sealed class ProjectSession : IAsyncDisposable
 		return await joinArgs.Read(lts.Token);
 	}
 
-	public async Task<Protocol.JoinProjectArgs> CompleteJoin()
+	public async Task<Protocol.JoinProjectArgs> GetProjectInfo()
 		=> await joinArgs.Read(listenSource.Token);
 
 	/// <summary>
