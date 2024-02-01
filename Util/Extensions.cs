@@ -73,4 +73,9 @@ public static class Extensions
 		return sb.ToString();
 	}
 
+	public static ArraySegment<T> SliceWhile<T>(this ArraySegment<T> arr, int off, Func<T, bool> pred)
+		=> arr.Slice(off, arr.Slice(off).TakeWhile(pred).Count());
+
+	public static ArraySegment<T> SliceWhile<T>(this ArraySegment<T> arr, Func<T, bool> pred)
+		=> arr.SliceWhile(0, pred);
 }

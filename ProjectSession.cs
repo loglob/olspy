@@ -5,6 +5,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Olspy.Util;
 
+using static Olspy.Protocol;
+
 namespace Olspy;
 
 /// <summary>
@@ -115,54 +117,32 @@ public sealed class ProjectSession : IAsyncDisposable
 				if(msg.Type == WebSocketMessageType.Close || Left)
 					break;
 
-				var dat = msg.Data;
+				var pkt = Packet.Parse(msg.Data);
 
-				// TODO: nicer handling of invalid messages
-				if(dat[1] != ':')
-					throw new FormatException("Unexpected message data, expected 1 opcode byte");
-
-				switch(dat[0])
+				switch(pkt.OpCode)
 				{
-					case Protocol.INIT_REC:
+					case OpCode.CONNECT:
 					break;
 
-					case Protocol.HEARTBEAT_REC:
-						sendQueue.Enqueue(new Message(dat, WebSocketMessageType.Text));
+					case OpCode.HEARTBEAT:
+						sendQueue.Enqueue(new Message(msg.Data, WebSocketMessageType.Text));
 					break;
 
-					case Protocol.JOIN_PROJECT_REC:
+					case OpCode.EVENT:
 					{
-						if(dat[2] != ':' || dat[3] != ':')
-							throw new FormatException("Invalid joinProjectResponse message");
+						var (name, args) = pkt.EventPayload;
 
-						var cont = JsonNode.Parse(dat.Slice(4));
+						if(name != RPC_JOIN_PROJECT)
+							throw new NotImplementedException($"Unhandled server-side EVENT '{name}'");
 
-						if((string?) cont?["name"]?.AsValue() != "joinProjectResponse")
-							throw new FormatException("Argument to join project opcode has invalid name");
-
-						var arg = cont!["args"]!.AsArray()![0].Deserialize<Protocol.JoinProjectArgs>(Protocol.JsonOptions)!;
-						await joinArgs.Write(arg, listenSource.Token);
+						await joinArgs.Write(args[0].Deserialize<JoinProjectArgs>(JsonOptions)!, listenSource.Token);
 					}
 					break;
 
-					case Protocol.RPC_RESULT_REC:
+					case OpCode.ACK:
 					{
-						if(dat[2] != ':' || dat[3] != ':')
-							throw new FormatException("Invalid joinProjectResponse message");
-
-						int i;
-						
-						for (i = 0;;)
-						{
-							if(! char.IsDigit((char)dat[4 + i]))
-								throw new FormatException("Expected packet number");
-
-							if(dat[4 + ++i] == '+')
-								break;
-						}
-
-						uint pNum = uint.Parse(dat.Slice(4, i));
-						var data = JsonNode.Parse(dat.Slice(i + 5));
+						var pNum = pkt.ID!.Value;
+						var data = pkt.JsonPayload;
 
 						if(rpcResults.TryRemove(pNum, out var sh))
 							await sh.Write(data);
@@ -170,7 +150,7 @@ public sealed class ProjectSession : IAsyncDisposable
 					break;
 
 					default:
-						throw new FormatException($"Invalid opcode '{dat[0]}'");
+						throw new NotImplementedException($"Unhandled opcode: {pkt.OpCode}");
 				}
 			}
 		}
@@ -193,7 +173,7 @@ public sealed class ProjectSession : IAsyncDisposable
 		if(! rpcResults.TryAdd(n, res))
 			throw new InvalidOperationException("Duplicate message number");
 
-		var dat = $"{(char)Protocol.RPC_SEND}:{n}+::" + JsonSerializer.Serialize(obj);
+		var dat = $"{(char)(OpCode.EVENT + '0')}:{n}+::" + JsonSerializer.Serialize(obj);
 
 		sendQueue.Enqueue(new( Encoding.UTF8.GetBytes(dat), WebSocketMessageType.Text ));
 

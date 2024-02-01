@@ -266,6 +266,146 @@ public static class Protocol
 			=> OutputFiles.Where(f => f.Path.EndsWith(".pdf")).Single();
 	}
 
+	public enum OpCode
+	{
+		DISCONNECT = 0,
+		CONNECT = 1,
+		HEARTBEAT = 2,
+		MESSAGE = 3,
+		JSON = 4,
+		EVENT = 5,
+		ACK = 6,
+		ERROR = 7,
+		NOOP = 8
+	}
+
+	
+	/// <summary>
+	///  A packet sent over the socket.io interface
+	/// </summary>
+	/// <param name="OpCode"> The packet type </param>
+	/// <param name="ID"> A sequence number, if present. For ACK packets it is the sequence number they acknowledge. </param>
+	/// <param name="AckWithData"> Whether this packet should be acknowledged with extra data (?) </param>
+	/// <param name="Endpoint"></param>
+	/// <param name="Payload"> The actual byte payload </param>
+	public sealed record Packet(
+		OpCode OpCode,
+		uint? ID,
+		bool AckWithData,
+		ArraySegment<byte> Endpoint,
+		ArraySegment<byte> Payload
+	) {
+		// Overleaf's socket.io version (0.9 maybe?) is so outdated I couldn't find any implementations or even documentation on it.
+		// the packet structure is inferred from here:
+		// https://github.com/overleaf/socket.io/blob/ddbee7b2d0427d4e4954cf9761abc8053c290292/lib/parser.js
+		
+		private static uint parseDecimal(ArraySegment<byte> bytes, out int len)
+		{
+			uint x = 0;
+
+			for (len = 0; len < bytes.Count && bytes[len] >= (byte)'0' && bytes[len] <= (byte)'9'; ++len)
+				x = x * 10 + bytes[len] - '0';
+			
+			return x;
+		}
+
+		public static Packet Parse(ArraySegment<byte> data)
+		{
+			if(data.Count == 0)
+				throw new FormatException("Empty packet data");
+			if(data[0] < '0' || data[0] > '8' || data[1] != ':')
+				throw new FormatException("Packet must start with single-byte opcode");
+			
+			var op = (OpCode)(data[0] - '0');
+			int off = 2;
+
+			uint id = parseDecimal(data.Slice(off), out int idLen);
+			off += idLen;
+
+			bool awd = off < data.Count && data[off] == '+';
+
+			if(awd)
+				++off;
+
+			if(off >= data.Count || data[off++] != ':')
+				throw new FormatException("Expected separator after packet id field");
+			
+			var ep = data.SliceWhile(off, c => c != ':');
+			off += ep.Count;
+
+			if(off < data.Count && data[off] == ':')
+				++off;
+
+			if(op == OpCode.ACK)
+			{
+				// the ID is in a different place for ACKs
+				if(idLen > 0 || awd)
+					throw new FormatException("ACK packets may not have message IDs");
+
+				id = parseDecimal(data.Slice(off), out idLen);
+				off += idLen;
+
+				if(idLen == 0)
+					throw new FormatException("ACK packets must have a message ID");
+				
+				awd = off < data.Count && data[off] == '+';
+
+				if(awd)
+					++off;
+			}
+
+			return new Packet(op, idLen > 0 ? id : null, awd, ep, data.Slice(off));
+		}
+	
+		public bool ShouldAcknowledge
+			=> ID.GetValueOrDefault(0) > 0;
+
+		public string StringPayload
+			=> Encoding.UTF8.GetString(Payload);
+
+		public JsonNode? JsonPayload
+			=> JsonNode.Parse(Payload);
+
+		/// <summary>
+		///  The payload of EVENT packets
+		/// </summary>
+		public (string name, JsonArray args) EventPayload
+		{
+			get
+			{
+				var obj = (JsonPayload ?? throw new FormatException("Malformed EVENT packet with null payload")).AsObject();
+
+				if(obj["name"] is not JsonValue nameV || ((string?)nameV) is not string name)
+					throw new FormatException("Malformed EVENT packet. Expected 'name' field");
+				
+				var argsF = obj["args"];
+
+				if(obj.Count > (argsF is null ? 1 : 2))
+					throw new FormatException("Malformed EVENT packet. Too many fields.");
+
+				if(argsF is null)
+					return (name, new());
+				else if (argsF is not JsonArray args)
+					throw new FormatException("Malformed EVENT packet. Expected the args field to be an array.");
+				else
+					return (name, args);
+			}
+		}
+
+		/// <summary>
+		///  The payload of ERROR packets
+		/// </summary>
+		public (string reason, string advice) ErrorPayload
+		{
+			get
+			{
+				var l = Payload.SliceWhile(0, c => c == '+');
+
+				return (Encoding.UTF8.GetString(l), Encoding.UTF8.GetString(Payload.Slice(1 + l.Count)));
+			}
+		}
+	}
+
 	/// <summary>
 	///  Undoes the encoding overleaf applies to document contents with
 	///  `unescape(encodeUriComponent(x))`
@@ -309,16 +449,12 @@ public static class Protocol
 		return Uri.UnescapeDataString(escaped.ToString());
 	}
 
-	public const byte HEARTBEAT_REC = (byte)'2';
-	public const byte HEARTBEAT_SEND = (byte)'2';
-	public const byte INIT_REC = (byte)'1';
-	public const byte JOIN_PROJECT_REC = (byte)'5';
-	public const byte RPC_RESULT_REC = (byte)'6';
-	public const byte RPC_SEND = (byte)'5';
-	public const byte UPDATE_POS_SEND = (byte)'5';
-
 	public const string RPC_JOIN_DOCUMENT = "joinDoc";
 	public const string RPC_LEAVE_DOCUMENT = "leaveDoc";
+	/// <summary>
+	///  Name of an EVENT packet received when the client initiates the socket
+	/// </summary>
+	public const string RPC_JOIN_PROJECT = "joinProjectResponse";
 
 	public static readonly JsonSerializerOptions JsonOptions = new() {
 		PropertyNamingPolicy = JsonNamingPolicy.CamelCase
