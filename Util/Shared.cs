@@ -2,40 +2,33 @@
 namespace Olspy.Util;
 
 /// <summary>
-///  A MRMW register
+///  A MRMW register that can only be overwritten once
 /// </summary>
-public class Shared<T>
+public class Shared<T> where T : class
 {
-	private SemaphoreSlim sem = new(0);
-	uint present = 0;
-#pragma warning disable 8601
-	private T value = default;
-#pragma warning restore
+	/// <summary>
+	///  Set to 1 when a value becomes available.
+	///  Set to 0 while an exclusive operation is run on `value`.
+	/// </summary>
+	private readonly SemaphoreSlim sem = new(0);
+	private T? value = null;
 
 	public Shared(){}
 
-	public async ValueTask Write(T x, CancellationToken ct)
+	public void Write(T x)
 	{
-		if(Interlocked.CompareExchange(ref present, 1, 0) == 0)
-		{
-			value = x;
-			sem.Release();
-		}
-		else
-		{
-			await sem.WaitAsync(ct);
-			value = x;
-			sem.Release();
-		}
-	}
+		ArgumentNullException.ThrowIfNull(x);
 
-	public ValueTask Write(T x)
-		=> Write(x, CancellationToken.None);
+		if(Interlocked.CompareExchange(ref value, x, null) != null)
+			throw new InvalidOperationException("Shared can only be set once");
+		
+		sem.Release();
+	}
 
 	public async Task<T> Read(CancellationToken ct)
 	{
 		await sem.WaitAsync(ct);
-		var x = value;
+		var x = value!;
 		sem.Release();
 
 		return x;
@@ -52,7 +45,7 @@ public class Shared<T>
 		await sem.WaitAsync(ct);
 		try
 		{
-			return func(value);		
+			return func(value!);		
 		}
 		finally
 		{
@@ -68,7 +61,7 @@ public class Shared<T>
 		await sem.WaitAsync(ct);
 		try
 		{
-			return await func(value, ct);
+			return await func(value!, ct);
 		}
 		finally
 		{

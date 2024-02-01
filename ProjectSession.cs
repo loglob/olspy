@@ -29,7 +29,7 @@ public sealed class ProjectSession : IAsyncDisposable
 
 	private readonly SharedQueue<Message> sendQueue = new();
 	private readonly Shared<Protocol.JoinProjectArgs> joinArgs = new();
-	private readonly ConcurrentDictionary<uint, Shared<JsonNode?>> rpcResults = new();
+	private readonly ConcurrentDictionary<uint, Shared<JsonNode>> rpcResults = new();
 
 	public bool Left
 		=> socket.CloseStatus is not null;
@@ -135,17 +135,17 @@ public sealed class ProjectSession : IAsyncDisposable
 						if(name != RPC_JOIN_PROJECT)
 							throw new NotImplementedException($"Unhandled server-side EVENT '{name}'");
 
-						await joinArgs.Write(args[0].Deserialize<JoinProjectArgs>(JsonOptions)!, listenSource.Token);
+						joinArgs.Write(args[0].Deserialize<JoinProjectArgs>(JsonOptions)!);
 					}
 					break;
 
 					case OpCode.ACK:
 					{
 						var pNum = pkt.ID!.Value;
-						var data = pkt.JsonPayload;
+						var data = pkt.JsonPayload ?? throw new FormatException("Payload of ACK packet was null");
 
 						if(rpcResults.TryRemove(pNum, out var sh))
-							await sh.Write(data);
+							sh.Write(data);
 					}
 					break;
 
@@ -169,7 +169,7 @@ public sealed class ProjectSession : IAsyncDisposable
 		var obj = new { name = kind, args };
 
 		// set up register to take result
-		var res = new Shared<JsonNode?>();
+		var res = new Shared<JsonNode>();
 		if(! rpcResults.TryAdd(n, res))
 			throw new InvalidOperationException("Duplicate message number");
 
@@ -229,9 +229,10 @@ public sealed class ProjectSession : IAsyncDisposable
 	}
 
 	/// <summary>
+	///  Retrieves the project information 
 	///  Waits for the server-side join handshake to complete by sending project information 
 	/// </summary>
-	public async Task<Protocol.JoinProjectArgs> CompleteJoin(CancellationToken ct)
+	public async Task<Protocol.JoinProjectArgs> GetProjectInfo(CancellationToken ct)
 	{
 		var lts = CancellationTokenSource.CreateLinkedTokenSource(listenSource.Token, ct);
 
