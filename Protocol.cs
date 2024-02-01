@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -263,6 +264,49 @@ public static class Protocol
 	) {
 		public OutputFile PDF
 			=> OutputFiles.Where(f => f.Path.EndsWith(".pdf")).Single();
+	}
+
+	/// <summary>
+	///  Undoes the encoding overleaf applies to document contents with
+	///  `unescape(encodeUriComponent(x))`
+	/// </summary>
+	public static string UnMangle(string mangled)
+	{
+		var escaped = new StringBuilder();
+
+		// replicate javascript's escape()
+		foreach (var c in mangled)
+		{
+			switch (c)
+			{
+				case char when char.IsAsciiLetterOrDigit(c):
+				case '@':
+				case '*':
+				case '_':
+				case '+':
+				case '-':
+				case '.':
+				case '/':
+					escaped.Append(c);
+				break;
+
+				default:
+				{
+					escaped.Append('%');
+
+					if(c < 256)
+						escaped.Append(((int)c).ToString("X2"));
+					else
+					{
+						escaped.Append('u');
+						escaped.Append(((int)c).ToString("X4"));
+					}
+				}
+				break;
+			}
+		}
+
+		return Uri.UnescapeDataString(escaped.ToString());
 	}
 
 	public const byte HEARTBEAT_REC = (byte)'2';

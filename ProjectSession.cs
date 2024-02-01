@@ -272,6 +272,11 @@ public sealed class ProjectSession : IAsyncDisposable
 		await sendRPC(Protocol.RPC_LEAVE_DOCUMENT, [ ID ]);
 
 		// TODO: handle lookup failure, figure out what the other entries do
-		return req!.AsArray()![1]!.AsArray()!.Deserialize<string[]>()!;
+		var lines = req!.AsArray()![1]!.AsArray()!.Deserialize<string[]>()!;
+
+		for (int i = 0; i < lines.Length; i++)
+			lines[i] = Protocol.UnMangle(lines[i]);
+
+		return lines;
 	}
 }
