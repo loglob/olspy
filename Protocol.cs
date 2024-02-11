@@ -458,5 +458,8 @@ public static class Protocol
 
 	public static readonly JsonSerializerOptions JsonOptions = new() {
 		PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+	#if DEBUG
+		,UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
+	#endif
 	};
 }
