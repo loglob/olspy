@@ -218,27 +218,6 @@ public sealed class Project
 	}
 
 	/// <summary>
-	///  Initializes a websocket instance for this project
-	/// </summary>
-	public Task<ProjectSession> Join()
-		=> ProjectSession.Connect(this, client);
-
-	/// <summary>
-	///  Retrieves general project information, containing its file structure
-	/// </summary>
-	/// <param name="cache"> If false, do not return cached information but always make a new web request </param>
-	public async ValueTask<Protocol.JoinProjectArgs> GetInfo(bool cache = true)
-	{
-		if(!cache || info is null)
-		{
-			await using var jp = await Join();
-			return await jp.GetProjectInfo();
-		}
-		else
-			return info;
-	}
-
-	/// <summary>
 	///  Compiles the project
 	/// </summary>
 	/// <param name="rootDoc"> The tex document to use as main file. Use null for the default main file. </param>
@@ -258,6 +237,27 @@ public sealed class Project
 		return (await res.Content.ReadFromJsonAsync<Protocol.CompileInfo>(Protocol.JsonOptions)) ?? throw new Exception("Compile API returned null object", null);
 	}
 
+	public async Task<string[]> GetDocumentByID(string docID)
+	{
+		await using var s = await Join();
+		return await s.GetDocumentByID(docID);
+	}
+
+	/// <summary>
+	///  Retrieves general project information, containing its file structure
+	/// </summary>
+	/// <param name="cache"> If false, do not return cached information but always make a new web request </param>
+	public async ValueTask<Protocol.JoinProjectArgs> GetInfo(bool cache = true)
+	{
+		if(!cache || info is null)
+		{
+			await using var jp = await Join();
+			return await jp.GetProjectInfo();
+		}
+		else
+			return info;
+	}
+
 	/// <summary>
 	///  Retrieves a file from a previously successful compilation
 	/// </summary>
@@ -272,9 +272,10 @@ public sealed class Project
 		return resp.Content;
 	}
 
-	public async Task<string[]> GetDocumentByID(string docID)
-	{
-		await using var s = await Join();
-		return await s.GetDocumentByID(docID);
-	}
+	/// <summary>
+	///  Initializes a websocket instance for this project
+	/// </summary>
+	public Task<ProjectSession> Join()
+		=> ProjectSession.Connect(this, client);
+
 }
