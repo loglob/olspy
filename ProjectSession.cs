@@ -117,51 +117,73 @@ public sealed class ProjectSession : IAsyncDisposable
 				if(msg.Type == WebSocketMessageType.Close || Left)
 					break;
 
-				var pkt = Packet.Parse(msg.Data);
+				Packet pkt;
 
-				switch(pkt.OpCode)
+				try
 				{
-					case OpCode.CONNECT:
-					break;
+					pkt = Packet.Parse(msg.Data);
+				}
+				catch (Exception ex)
+				{
+					await Console.Error.WriteLineAsync("Received invalid packet: " + ex);
+					continue;
+				}
 
-					case OpCode.HEARTBEAT:
-						sendQueue.Enqueue(new Message(msg.Data, WebSocketMessageType.Text));
-					break;
-
-					case OpCode.EVENT:
+				try 
+				{
+					switch(pkt.OpCode)
 					{
-						var (name, args) = pkt.EventPayload;
+						case OpCode.CONNECT:
+						break;
 
-						if(name != RPC_JOIN_PROJECT)
-							throw new NotImplementedException($"Unhandled server-side EVENT '{name}'");
+						case OpCode.HEARTBEAT:
+							sendQueue.Enqueue(new Message(msg.Data, WebSocketMessageType.Text));
+						break;
 
-						var v = args[0].Deserialize<JoinProjectArgs>(JsonOptions)!;
+						case OpCode.EVENT:
+						{
+							var (name, args) = pkt.EventPayload;
 
-						Project.info = v;
-						joinArgs.Write(v);
+							if(name != RPC_JOIN_PROJECT)
+								throw new NotImplementedException($"Unhandled server-side EVENT '{name}'");
+
+							var v = args[0].Deserialize<JoinProjectArgs>(JsonOptions)!;
+
+							Project.info = v;
+							joinArgs.Write(v);
+						}
+						break;
+
+						case OpCode.ACK:
+						{
+							var pNum = pkt.ID!.Value;
+							var data = pkt.JsonPayload ?? throw new FormatException("Payload of ACK packet was null");
+
+							if(rpcResults.TryRemove(pNum, out var sh))
+								sh.Write(data is JsonArray a ? a : []);
+						}
+						break;
+
+						case OpCode.DISCONNECT:
+							return;
+
+						default:
+							throw new NotImplementedException($"Unhandled opcode: {pkt.OpCode}");
 					}
-					break;
-
-					case OpCode.ACK:
-					{
-						var pNum = pkt.ID!.Value;
-						var data = pkt.JsonPayload ?? throw new FormatException("Payload of ACK packet was null");
-
-						if(rpcResults.TryRemove(pNum, out var sh))
-							sh.Write(data is JsonArray a ? a : []);
-					}
-					break;
-
-					case OpCode.DISCONNECT:
-						return;
-
-					default:
-						throw new NotImplementedException($"Unhandled opcode: {pkt.OpCode}");
+				}
+				catch(Exception ex)
+				{
+					await Console.Error.WriteLineAsync($"Could not process packet: " + ex);
+					throw;
 				}
 			}
 		}
 		finally
 		{
+			// ensure this source is always cancelled when the listener won't process new packets
+			if(! listenSource.IsCancellationRequested)
+				await listenSource.CancelAsync();
+
 			await sendSource.CancelAsync();
 		}
 	}
