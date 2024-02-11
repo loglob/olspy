@@ -144,7 +144,10 @@ public sealed class ProjectSession : IAsyncDisposable
 						{
 							var (name, args) = pkt.EventPayload;
 
-							if(name != RPC_JOIN_PROJECT)
+							// these events are send when other users edit the same documents
+							if(name.StartsWith("clientTracking."))
+								break;
+							else if(name != RPC_JOIN_PROJECT)
 								throw new NotImplementedException($"Unhandled server-side EVENT '{name}'");
 
 							var v = args[0].Deserialize<JoinProjectArgs>(JsonOptions)!;
