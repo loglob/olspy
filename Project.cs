@@ -241,13 +241,13 @@ public sealed class Project
 	/// <summary>
 	///  Compiles the project
 	/// </summary>
-	/// <param name="rootDoc"> The tex document to use as main file </param>
+	/// <param name="rootDoc"> The tex document to use as main file. Use null for the default main file. </param>
 	/// <param name="draft"> Whether to run a draft compile </param>
 	/// <param name="check"> Observed values: silent </param>
 	/// <param name="incremental"></param>
 	/// <param name="stopOnFirstError"> Whether to stop on error or continue compiling </param>
 	/// <returns></returns>
-	public async Task<Protocol.CompileInfo> Compile(string rootDoc, bool draft = false, string check = "silent", bool incremental = true, bool stopOnFirstError = false)
+	public async Task<Protocol.CompileInfo> Compile(string? rootDoc = null, bool draft = false, string check = "silent", bool incremental = true, bool stopOnFirstError = false)
 	{
 		var res = await client.PostAsJsonAsync($"project/{ID}/compile?",
 			new{ rootDoc_id = rootDoc, draft, check, incrementalCompilesEnabled = incremental, stopOnFirstError });
@@ -255,12 +255,7 @@ public sealed class Project
 		if(! res.IsSuccessStatusCode)
 			throw new Exception($"Bad status code requesting compile: got {res.StatusCode}");
 		
-		var json = await res.Content.ReadFromJsonAsync<JsonObject>();
-
-		if(json is null || (string?)json["status"] != "success")
-			throw new Exception("compile request did not succeed");
-
-		return json.Deserialize<Protocol.CompileInfo>(Protocol.JsonOptions)!;
+		return (await res.Content.ReadFromJsonAsync<Protocol.CompileInfo>(Protocol.JsonOptions)) ?? throw new Exception("Compile API returned null object", null);
 	}
 
 	/// <summary>

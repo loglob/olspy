@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -243,12 +244,38 @@ public static class Protocol
 	/// <param name="Ranges"> TODO: find this type </param>
 	/// <param name="Size"> The size of a PDF in bytes </param>
 	/// <param name="CreatedAt"> Timestamp for this compilation, only on PDFs </param>
+#if DEBUG
+	// redundant url and type members are skipped
+	[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Skip)]
+#endif
+	// TODO: convert to polymorphic once .NET 9 comes out (ref: https://github.com/dotnet/runtime/issues/72604)
 	public record OutputFile(
 		string Path,
 		string Build,
 		object[]? Ranges = null,
 		int? Size = null,
 		DateTime? CreatedAt = null
+	);
+
+	/// <param name="LatexmkErrors"> Identical to `LatexRunsWithErrors0` (?) </param>
+	/// <param name="LatexRuns"> Always 0 (?) </param>
+	/// <param name="LatexRunsWithErrors"> Always 0 (?) See `LatexRunsWithErrors0` instead. </param>
+	/// <param name="LatexRuns0"> Always 1 (?) </param>
+	/// <param name="LatexRunsWithErrors0"> 1 if a successful compilation encountered any recoverable errors, 0 otherwise. </param>
+	/// <param name="PdfSize"> Output PDF file size in bytes, if there is one. Identical to `OutputFile.Size`. </param>
+	public sealed record CompileStats(
+		[property: JsonPropertyName("latexmk-errors")]
+		int LatexmkErrors,
+		[property: JsonPropertyName("latex-runs")]
+		int LatexRuns,
+		[property: JsonPropertyName("latex-runs-with-errors")]
+		int LatexRunsWithErrors,
+		[property: JsonPropertyName("latex-runs-0")]
+		int LatexRuns0,
+		[property: JsonPropertyName("latex-runs-with-errors-0")]
+		int LatexRunsWithErrors0,
+		[property: JsonPropertyName("pdf-size")]
+		int? PdfSize
 	);
 
 	/// <summary>
@@ -258,30 +285,46 @@ public static class Protocol
 	/// <param name="Compile"></param>
 	/// <param name="Output"></param>
 	/// <param name="Total"> The total, end-to-end compile time </param>
-	public sealed record Timings(
+	public sealed record CompileTimings(
 		int Sync,
 		int Compile,
 		int Output,
-		[property: JsonPropertyName("CompileE2E")]
+		[property: JsonPropertyName("compileE2E")]
 		int Total
 	);
 
 	/// <summary>
 	///  Information returned by a compile API call
 	/// </summary>
+	/// <param name="OutputFiles">
+	/// 	"success" if a PDF was produced, "failure" otherwise.
+	/// 	Note that a PDF may be produced even if there were compile errors.
+	/// </param>
 	/// <param name="OutputFiles"></param>
 	/// <param name="CompileGroup"> Observed values: standard </param>
-	/// <param name="Stats"> TODO: more precise type </param>
+	/// <param name="Stats"> Information on compile errors </param>
 	/// <param name="Timings"></param>
 	/// <returns></returns>
 	public sealed record CompileInfo(
+		string Status,
 		OutputFile[] OutputFiles,
 		string CompileGroup,
-		Dictionary<string, int> Stats,
-		Timings Timings
+		CompileStats Stats,
+		CompileTimings Timings
 	) {
-		public OutputFile PDF
-			=> OutputFiles.Where(f => f.Path.EndsWith(".pdf")).Single();
+		/// <summary>
+		///  Determines if a success status was indicated and a single output PDF file was produced
+		/// </summary>
+		public bool IsSuccess([MaybeNullWhen(false)] out OutputFile pdf)
+		{
+			if(Status != "success")
+			{
+				pdf = null;
+				return false;
+			}
+			
+			return OutputFiles.Where(f => f.Path.EndsWith(".pdf")).IsSingle(out pdf);
+		}
 	}
 
 	public enum OpCode

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Net.WebSockets;
 using System.Text;
 
@@ -14,6 +15,33 @@ internal record struct Message( ArraySegment<byte> Data, WebSocketMessageType Ty
 
 internal static class Extensions
 {
+	/// <summary>
+	///  Determines if an enumerable is a singleton
+	/// </summary>
+	/// <param name="value"> The only value in xs, if xs is singleton </param>
+	public static bool IsSingle<T>(this IEnumerable<T> xs, [MaybeNullWhen(false)] out T value)
+	{
+		bool first = true;
+		T last = default!;
+
+		foreach (var x in xs)
+		{
+			if(first)
+			{
+				last = x;
+				first = false;
+			}
+			else
+			{
+				value = default;
+				return false;
+			}
+		}
+
+		value = last;
+		return !first;
+	}
+
 	/// <summary>
 	///  Receives a websocket message split over multiple packets
 	/// </summary>

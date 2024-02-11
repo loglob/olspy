@@ -3,11 +3,7 @@ using System.Text.Json.Nodes;
 namespace Olspy;
 
 /// <summary>
-///  An exception retrieved from the overleaf server
+///  An exception received from the overleaf server
 /// </summary>
-public class OverleafException : Exception
-{
-
-	public OverleafException(string reason, JsonNode response) : base(reason + ": " + response)
-	{}
-}
+public class OverleafException(string reason, JsonNode? response) : Exception(reason + ": " + (response?.ToString() ?? "null"))
+{}
