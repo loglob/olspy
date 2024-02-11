@@ -35,16 +35,34 @@ public static class Protocol
 	/// <summary>
 	///  A binary file
 	/// </summary>
-	/// <param name="LinkedFileData"> TODO </param>
+	/// <param name="LinkedFileData"> If null, this is a local binary file.
+	///		Otherwise, points to a file from another project </param>
 	/// <param name="Created"> UTC timestamp of creation </param>
 	/// <returns></returns>
 	public sealed record FileRefInfo(
 		string ID,
 		string Name,
-		// TODO: find this type
-		object? LinkedFileData,
+		LinkedFile? LinkedFileData,
 		DateTime Created
 	) : FileInfo(ID, Name);
+
+	[JsonPolymorphic(TypeDiscriminatorPropertyName = "provider")]
+	[JsonDerivedType(typeof(LinkedProjectFile), "project_file")]
+	[JsonDerivedType(typeof(LinkedOutputFile), "project_output_file")]
+	public abstract record LinkedFile(
+		[property: JsonPropertyName("source_project_id")] string SourceProjectID
+	);
+
+	public record LinkedProjectFile(
+		string SourceProjectID,
+		[property: JsonPropertyName("source_entity_path")] string SourceEntityPath
+	) : LinkedFile(SourceProjectID);
+
+	public record LinkedOutputFile(
+		string SourceProjectID,
+		[property: JsonPropertyName("source_output_file_path")] string SourceOutputFilePath,
+		[property: JsonPropertyName("build_id")] string BUildID
+	) : LinkedFile(SourceProjectID);
 
 	/// <summary>
 	///  A folder
@@ -100,7 +118,7 @@ public static class Protocol
 				.Concat(FileRefs)
 				.Select(f => (f.Name, f))
 				.Concat(Folders.SelectMany(d => d.List()
-					.Select(pf => (d.Name + "/" + pf.Item1, pf.Item2))));
+					.Select(pf => (d.Name + "/" + pf.path, pf.file))));
 
 		/// <summary>
 		///  Lists all files in the folder and its sub-folders, recursively
@@ -384,7 +402,7 @@ public static class Protocol
 					throw new FormatException("Malformed EVENT packet. Too many fields.");
 
 				if(argsF is null)
-					return (name, new());
+					return (name, []);
 				else if (argsF is not JsonArray args)
 					throw new FormatException("Malformed EVENT packet. Expected the args field to be an array.");
 				else
