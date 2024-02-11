@@ -193,7 +193,7 @@ public static class Protocol
 		string Compiler,
 		string Description,
 		string SpellCheckLanguage,
-		bool DeletedByExternalDataSources,
+		bool DeletedByExternalDataSource,
 		DeletedFileInfo[] DeletedDocs,
 		UserInfo[] Members,
 		JsonObject[] Invites,
