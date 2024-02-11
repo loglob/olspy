@@ -27,9 +27,9 @@ public sealed class ProjectSession : IAsyncDisposable
 	private readonly WebSocket socket;
 	private uint packetNumber = 0;
 
-	private readonly SharedQueue<Message> sendQueue = new();
-	private readonly Shared<Protocol.JoinProjectArgs> joinArgs = new();
-	private readonly ConcurrentDictionary<uint, Shared<JsonArray>> rpcResults = new();
+	private readonly AwaitableQueue<Message> sendQueue = new();
+	private readonly WriteOnce<JoinProjectArgs> joinArgs = new();
+	private readonly ConcurrentDictionary<uint, WriteOnce<JsonArray>> rpcResults = new();
 
 	public bool Left
 		=> socket.CloseStatus is not null;
@@ -197,7 +197,7 @@ public sealed class ProjectSession : IAsyncDisposable
 		var obj = new { name = kind, args };
 
 		// set up register to take result
-		var res = new Shared<JsonArray>();
+		var res = new WriteOnce<JsonArray>();
 		if(! rpcResults.TryAdd(n, res))
 			throw new InvalidOperationException("Duplicate message number");
 

@@ -6,13 +6,13 @@ namespace Olspy.Util;
 /// <summary>
 ///  A complete websocket message
 /// </summary>
-public record struct Message( ArraySegment<byte> Data, WebSocketMessageType Type )
+internal record struct Message( ArraySegment<byte> Data, WebSocketMessageType Type )
 {
 	public override readonly string ToString()
 		=> Encoding.UTF8.GetString(Data);
 }
 
-public static class Extensions
+internal static class Extensions
 {
 	/// <summary>
 	///  Receives a websocket message split over multiple packets
@@ -36,18 +36,6 @@ public static class Extensions
 
 			ct.ThrowIfCancellationRequested();
 		}
-	}
-
-	public static Task<Message> ReceiveCompleteAsync(this WebSocket ws)
-		=> ReceiveCompleteAsync(ws, CancellationToken.None);
-
-	/// <returns> A new Uri that is identical to `old`, except for its scheme </returns>
-	public static Uri WithScheme(this Uri old, string scheme)
-	{
-		var orig = old.OriginalString;
-		int off = orig.IndexOf(Uri.SchemeDelimiter);
-
-		return new Uri(scheme + ((off < 0) ? Uri.SchemeDelimiter + orig : orig[off..]));
 	}
 
 	/// <summary>
@@ -76,6 +64,12 @@ public static class Extensions
 	public static ArraySegment<T> SliceWhile<T>(this ArraySegment<T> arr, int off, Func<T, bool> pred)
 		=> arr.Slice(off, arr.Slice(off).TakeWhile(pred).Count());
 
-	public static ArraySegment<T> SliceWhile<T>(this ArraySegment<T> arr, Func<T, bool> pred)
-		=> arr.SliceWhile(0, pred);
+	/// <returns> A new Uri that is identical to `old`, except for its scheme </returns>
+	public static Uri WithScheme(this Uri old, string scheme)
+	{
+		var orig = old.OriginalString;
+		int off = orig.IndexOf(Uri.SchemeDelimiter);
+
+		return new Uri(scheme + ((off < 0) ? Uri.SchemeDelimiter + orig : orig[off..]));
+	}
 }

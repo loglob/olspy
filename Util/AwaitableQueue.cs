@@ -5,7 +5,7 @@ namespace Olspy.Util;
 /// <summary>
 ///  A MRMW queue where Dequeue can be await'ed 
 /// </summary>
-public class SharedQueue<T>
+internal class AwaitableQueue<T>
 {
 	private readonly SemaphoreSlim count = new(0);
 	/// <summary>
@@ -14,7 +14,7 @@ public class SharedQueue<T>
 	/// </summary>
 	private readonly ConcurrentQueue<T> items = new();
 
-	public SharedQueue(){}
+	public AwaitableQueue(){}
 
 	public int Count
 		=> count.CurrentCount;
