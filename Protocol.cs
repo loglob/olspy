@@ -468,6 +468,169 @@ public static class Protocol
 	}
 
 	/// <summary>
+	///  The user info given by meta entries.
+	///  Provides a slightly different format than that given in ProjectInfo
+	/// </summary>
+	/// <param name="FirstName"></param>
+	/// <param name="LastName"></param>
+	/// <param name="Email"></param>
+	/// <param name="ID"></param>
+	/// <returns></returns>
+	public sealed record UpdateMetaUser(
+		[property: JsonPropertyName("first_name")]
+		string FirstName,
+		[property: JsonPropertyName("last_name")]
+		string LastName,
+		string Email,
+		string ID
+	);
+
+	/// <param name="Kind"> Observed values: "history-migration" </param>
+	public sealed record UpdateMetaOrigin(
+		string Kind
+	);
+
+	/// <param name="Users"></param>
+	/// <param name="Start"></param>
+	/// <param name="End"></param>
+	/// <param name="Origin"></param>
+	public sealed record UpdateMeta(
+		object[] Users,
+		[property: JsonConverter(typeof(Olspy.Util.TimeStampConverter))]
+		[property: JsonPropertyName("start_ts")]
+		DateTime Start,
+		[property: JsonConverter(typeof(Olspy.Util.TimeStampConverter))]
+		[property: JsonPropertyName("end_ts")]
+		DateTime End,
+		UpdateMetaOrigin? Origin
+	);
+
+	public sealed record Rename(
+		[property: JsonPropertyName("pathname")]
+		string OldPath,
+		[property: JsonPropertyName("newPathname")]
+		string NewPath
+	);
+
+	public sealed record WrappedPath(
+		[property: JsonPropertyName("pathname")]
+		string Path
+	);
+
+	/// <summary>
+	///  A project-level operation. Exactly one of the nullable fields is present.
+	/// </summary>
+	/// <param name="Add"> The path of an created file </param>
+	/// <param name="Remove"> The path of a deleted file </param>
+	/// <param name="Rename"> Information on a moved file </param>
+	public sealed record UpdateProjectOp(
+		uint atV,
+		WrappedPath? Add = null,
+		WrappedPath? Remove = null,
+		Rename? Rename = null
+	);
+
+	/// <summary>
+	///  A project-level operation.
+	///  One of three cases Add, Remove or Rename. 
+	/// </summary>
+	/// <param name="atV"> The exact version number of this operation </param>
+	[JsonConverter(typeof(ProjectOpConverter))]
+	public abstract record BaseProjectOp(
+		uint AtV,
+		string Path
+	) {
+		public abstract T Distinguish<T>(Func<AddProjectOp, T> f, Func<RemoveProjectOp, T> g, Func<RenameProjectOp, T> h);
+	}
+
+	/// <summary>
+	///  A file was created
+	/// </summary>
+	/// <param name="Path"> The newly created file </param>
+	public sealed record AddProjectOp(
+		uint AtV,
+		string Path
+	) : BaseProjectOp(AtV, Path)
+	{
+		public override T Distinguish<T>(Func<AddProjectOp, T> f, Func<RemoveProjectOp, T> _g, Func<RenameProjectOp, T> _h)
+			=> f(this);
+	}
+
+	/// <summary>
+	///  A file was deleted
+	/// </summary>
+	/// <param name="Path"> The removed file </param>
+	public sealed record RemoveProjectOp(
+		uint AtV,
+		string Path
+	) : BaseProjectOp(AtV, Path)
+	{
+		public override T Distinguish<T>(Func<AddProjectOp, T> _f, Func<RemoveProjectOp, T> g, Func<RenameProjectOp, T> _h)
+			=> g(this);
+	}
+
+	/// <summary>
+	///  A file was moved
+	/// </summary>
+	/// <param name="Path"> The old path of the file </param>
+	/// <param name="NewPath"> The new path of the file </param>
+	public sealed record RenameProjectOp(
+		uint AtV,
+		string Path,
+		string NewPath
+	) : BaseProjectOp(AtV, Path)
+	{
+		public override T Distinguish<T>(Func<AddProjectOp, T> _f, Func<RemoveProjectOp, T> _g, Func<RenameProjectOp, T> h)
+			=> h(this);
+	}
+
+	/// <param name="ID"> A unique ID for this label </param>
+	/// <param name="Comment"> The name given by the user </param>
+	/// <param name="Version"> The exact version number of this label </param>
+	/// <param name="UserID"> The UUID of the user that created this label </param>
+	/// <param name="CreatedAt"> Creation timestamp in UTC </param>
+	/// <returns></returns>
+	public sealed record UpdateLabel(
+		string ID,
+		string Comment,
+		uint Version,
+		[property: JsonPropertyName("user_id")]
+		string UserID,
+		[property: JsonPropertyName("created_at")]
+		DateTime CreatedAt
+	);
+
+	/// <summary>
+	///  An update that aggregates multiple atomic changes
+	/// </summary>
+	/// <param name="FromV"> The version number before applying this update </param>
+	/// <param name="ToV"> The version number after applying this update </param>
+	/// <param name="Meta"> meta information (users and timestamp) on the update </param>
+	/// <param name="Labels">labels applied to versions of this update </param>
+	/// <param name="PathNames">
+	/// 	The files that were edited in this update.
+	/// 	Note that this covers only files edited via editor, not created deleted or moved files.
+	/// </param>
+	/// <param name="ProjectOps"> Project-level (i.e. create/delete/rename) operations </param>
+	public sealed record Update(
+		uint FromV,
+		uint ToV,
+		UpdateMeta Meta,
+		UpdateLabel[] Labels,
+		[property: JsonPropertyName("pathnames")]
+		string[] PathNames,
+		[property: JsonPropertyName("project_ops")]
+		BaseProjectOp[] ProjectOps
+	);
+
+	/// <summary>
+	///  The wrapped Update array that Overleaf returns
+	/// </summary>
+	public sealed record WrappedUpdates(
+		Update[] Updates
+	);
+
+	/// <summary>
 	///  Undoes the encoding overleaf applies to document contents with
 	///  `unescape(encodeUriComponent(x))`
 	/// </summary>

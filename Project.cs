@@ -267,9 +267,25 @@ public sealed class Project
 		var resp = await client.GetAsync($"project/{ID}/build/{f.Build}/output/{f.Path}");
 
 		if(! resp.IsSuccessStatusCode)
-			throw new Exception("Failed to GET compilation result");
+			throw new Exception($"Failed to GET compilation result: Status code is {(int)resp.StatusCode} ({resp.StatusCode})");
 		
 		return resp.Content;
+	}
+
+	/// <summary>
+	///  Retrieves the history of updates.
+	///  The return is sorted new to old.
+	/// </summary>
+	/// <remarks> Required read AND write permissions. A read-only share link will not work. </remarks>
+	public async Task<Protocol.Update[]> GetUpdateHistory()
+	{
+		var resp = await client.GetAsync($"project/{ID}/updates");
+
+		if(! resp.IsSuccessStatusCode)
+			throw new Exception($"Failed to GET update history: Status code is {(int)resp.StatusCode} ({resp.StatusCode})");
+
+		return (await resp.Content.ReadFromJsonAsync<Protocol.WrappedUpdates>(Protocol.JsonOptions))?.Updates
+			?? throw new Exception("Received null object trying to GET update history");
 	}
 
 	/// <summary>
