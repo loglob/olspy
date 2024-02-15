@@ -19,6 +19,11 @@ public sealed class ProjectSession : IAsyncDisposable
 	/// </summary>
 	public readonly Project Project;
 
+	/// <summary>
+	///  The timeout for receiving responses for RPC commands
+	/// </summary>
+	public TimeSpan Timeout = TimeSpan.FromSeconds(3);
+
 	// Use two cancellation tokens for a staggered close, since the websocket will get killed if any operation is cancelled
 	private readonly CancellationTokenSource sendSource = new();
 	private readonly CancellationTokenSource listenSource = new();
@@ -207,7 +212,7 @@ public sealed class ProjectSession : IAsyncDisposable
 
 		sendQueue.Enqueue(new( Encoding.UTF8.GetBytes(dat), WebSocketMessageType.Text ));
 
-		var tick = new CancellationTokenSource(3000);
+		var tick = new CancellationTokenSource(Timeout);
 		return await res.Read(CancellationTokenSource.CreateLinkedTokenSource(tick.Token, listenSource.Token, sendSource.Token).Token);
 	}
 
@@ -263,15 +268,13 @@ public sealed class ProjectSession : IAsyncDisposable
 	///  Waits for the server-side join handshake to complete which sends project information.
 	/// </summary>
 	/// <exception cref="OperationCanceledException"> If the server's response isn't received before the timeout </exception>
-	public async Task<Protocol.JoinProjectArgs> GetProjectInfo(CancellationToken ct)
+	public async Task<Protocol.JoinProjectArgs> GetProjectInfo(CancellationToken ct = default)
 	{
-		var lts = CancellationTokenSource.CreateLinkedTokenSource(listenSource.Token, ct);
+		var timer = new CancellationTokenSource(Timeout);
+		var lts = CancellationTokenSource.CreateLinkedTokenSource([ listenSource.Token, ct, timer.Token ]);
 
 		return await joinArgs.Read(lts.Token);
 	}
-
-	public async Task<Protocol.JoinProjectArgs> GetProjectInfo()
-		=> await joinArgs.Read(listenSource.Token);
 
 	/// <summary>
 	///  Resolves a document ID
@@ -279,6 +282,7 @@ public sealed class ProjectSession : IAsyncDisposable
 	/// <param name="ID"> A file ID found in the project information </param>
 	/// <returns> The lines of that document </returns>
 	/// <exception cref="WebSocketException"> When the server returns an error message, e.g. when the file ID doesn't exist </exception>
+	/// <exception cref="OperationCanceledException"> If the server's response isn't received before the timeout </exception>
 	public async Task<string[]> GetDocumentByID(string ID)
 	{
 		var req = await sendRPC(RPC_JOIN_DOCUMENT, [ ID, new{ encodeRanges = true } ]);

@@ -77,6 +77,20 @@ public sealed class Project
 	/// </summary>
 	private readonly HttpClient client;
 
+	/// <summary>
+	///  The timeout for HTTP requests.
+	///  Compiling a very large project might exceed the default value. 
+	/// </summary>
+	/// <value></value>
+	public TimeSpan HttpTimeout
+	{
+		get
+			=> client.Timeout;
+
+		set
+			=> client.Timeout = value;
+	}
+
 	private Project(string id, HttpClient client)
 	{
 		this.ID = id;
