@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageVersion>2.1.0</PackageVersion>
+    <PackageVersion>2.1.1</PackageVersion>
     <Authors>loglob</Authors>
     <RepositoryUrl>https://github.com/loglob/olspy</RepositoryUrl>
     <RepositoryBranch>v2</RepositoryBranch>
