@@ -77,20 +77,6 @@ public sealed class Project
 	/// </summary>
 	private readonly HttpClient client;
 
-	/// <summary>
-	///  The timeout for HTTP requests.
-	///  Compiling a very large project might exceed the default value. 
-	/// </summary>
-	/// <value></value>
-	public TimeSpan HttpTimeout
-	{
-		get
-			=> client.Timeout;
-
-		set
-			=> client.Timeout = value;
-	}
-
 	private Project(string id, HttpClient client)
 	{
 		this.ID = id;
@@ -105,6 +91,23 @@ public sealed class Project
 			_ => false
 		};
 
+	private static (HttpClientHandler handler, HttpClient client) configureClient(Uri baseUri, ProjectOptions options)
+	{
+		var handler = new HttpClientHandler() {
+			Proxy = options.Proxy,
+			UseProxy = options.Proxy is not null
+		};
+		
+		var client = new HttpClient(handler) {
+			BaseAddress = baseUri
+		};
+		
+		if(options.HttpTimeout.HasValue)
+			client.Timeout = options.HttpTimeout.Value;
+
+		return (handler, client);
+	}
+
 	/// <summary>
 	///  Opens a share link, which may be either read/write or read only
 	/// </summary>
@@ -113,7 +116,8 @@ public sealed class Project
 	/// <exception cref="HttpStatusException"> If the server responds with an invalid status code </exception>
 	/// <exception cref="HttpContentException"> If the server responds with invalid page content </exception>
 	/// <exception cref="HttpRequestException"> If an internal error occurs while making HTTP requests </exception>
-	public static async Task<Project> Open(Uri shareLink, WebProxy? proxy = null)
+	/// <exception cref="TaskCanceledException"> If the configured HttpTimeout is exceeded </exception>
+	public static async Task<Project> Open(Uri shareLink, ProjectOptions options = default)
 	{
 		ArgumentNullException.ThrowIfNull(shareLink);
 
@@ -135,15 +139,7 @@ public sealed class Project
 		else
 			throw new FormatException($"Invalid share URL: {shareLink}");
 
-		var handler = new HttpClientHandler() {
-			Proxy = proxy,
-			UseProxy = proxy is not null
-		};
-
-		var client = new HttpClient(handler) {
-			// note: how does this survive escaping?
-			BaseAddress = new Uri(shareLink, string.Join("", seg.SkipLast(omit)))
-		};
+		var (handler, client) = configureClient(new Uri(shareLink, string.Join("", seg.SkipLast(omit))), options);
 
 		var req = await client.GetAsync(shareLink);
 
@@ -192,7 +188,8 @@ public sealed class Project
 	/// <exception cref="HttpStatusException"> If the server returns any HTTP errors trying to load the project </exception>
 	/// <exception cref="HttpContentException"> If the server returns a page in an invalid format </exception>
 	/// <exception cref="HttpRequestException"> If an internal error occurs while making HTTP requests </exception>
-	public static async Task<Project> Open(Uri host, string ID, string session, WebProxy? proxy = null)
+ 	/// <exception cref="TaskCanceledException"> If the configured HttpTimeout is exceeded </exception>
+	public static async Task<Project> Open(Uri host, string ID, string session, ProjectOptions options = default)
 	{
 		ArgumentNullException.ThrowIfNull(host);
 		ArgumentNullException.ThrowIfNull(ID);
@@ -203,15 +200,8 @@ public sealed class Project
 		if(! validScheme(host.Scheme))
 			throw new FormatException($"Illegal URI scheme '{host.Scheme}'");
 
-		var handler = new HttpClientHandler() {
-			Proxy = proxy ,
-			UseProxy = proxy is not null
-		};
+		var (handler, client) = configureClient(host, options);
 		handler.CookieContainer.Add(new Cookie( SESSION_COOKIE, session ));
-
-		var client = new HttpClient(handler) {
-			BaseAddress = host
-		};
 
 		var doc = await client.GetAsync($"project/{ID}");
 		HttpStatusException.ThrowUnlessSuccessful(doc, "trying to load the project page. Are the credentials correct?");
@@ -234,8 +224,8 @@ public sealed class Project
 	/// <exception cref="HttpStatusException"> If the server returns any HTTP errors trying to load the project </exception>
 	/// <exception cref="HttpContentException"> If the server returns a page in an invalid format </exception>
 	/// <exception cref="HttpRequestException"> If an internal error occurs while making HTTP requests </exception>
-	///
-	public static async Task<Project> Open(Uri host, string ID, string email, string password, WebProxy? proxy = null)
+	/// <exception cref="TaskCanceledException"> If the configured HttpTimeout is exceeded </exception>
+	public static async Task<Project> Open(Uri host, string ID, string email, string password, ProjectOptions options = default)
 	{
 		ArgumentNullException.ThrowIfNull(host);
 		ArgumentNullException.ThrowIfNull(ID);
@@ -247,14 +237,8 @@ public sealed class Project
 		if(! validScheme(host.Scheme))
 			throw new FormatException($"Illegal URI scheme '{host.Scheme}'");
 
-		var handler = new HttpClientHandler() {
-			Proxy = proxy ,
-			UseProxy = proxy is not null
-		};
-		var client = new HttpClient(handler) {
-			BaseAddress = host
-		};
-
+		var (handler, client) = configureClient(host, options);
+		
 		var loginPage = await client.GetAsync("login");
 
 		HttpStatusException.ThrowUnlessSuccessful(loginPage, "trying to GET login page. Is the host URI correct?");
@@ -287,6 +271,7 @@ public sealed class Project
 	/// <exception cref="HttpStatusException"> If the server returns any HTTP errors  </exception>
 	/// <exception cref="HttpContentException"> If the server returns invalid JSON data </exception>
 	/// <exception cref="HttpRequestException"> If an internal error occurs while making HTTP requests </exception>
+	/// <exception cref="TaskCanceledException"> If the configured HttpTimeout is exceeded </exception>
 	public async Task<Protocol.CompileInfo> Compile(string? rootDoc = null, bool draft = false, string check = "silent", bool incremental = true, bool stopOnFirstError = false)
 	{
 		var res = await client.PostAsJsonAsync($"project/{ID}/compile?",
@@ -323,6 +308,7 @@ public sealed class Project
 	/// </summary>
 	/// <param name="f"> A file listed in the record returned by Compile() </param>
 	/// <exception cref="HttpStatusException"> If the server returns any HTTP errors  </exception>
+	/// <exception cref="TaskCanceledException"> If the configured HttpTimeout is exceeded </exception>
 	public async Task<HttpContent> GetOutFile(Protocol.OutputFile f)
 	{
 		var resp = await client.GetAsync($"project/{ID}/build/{f.Build}/output/{f.Path}");
@@ -340,6 +326,7 @@ public sealed class Project
 	/// <exception cref="HttpStatusException"> If the server returns any HTTP errors </exception>
 	/// <exception cref="HttpContentException"> If the server returns invalid JSON data </exception>
 	/// <exception cref="HttpRequestException"> If an internal error occurs while making HTTP requests </exception>
+	/// <exception cref="TaskCanceledException"> If the configured HttpTimeout is exceeded </exception>
 	public async Task<Protocol.Update[]> GetUpdateHistory()
 	{
 		var resp = await client.GetAsync($"project/{ID}/updates");
