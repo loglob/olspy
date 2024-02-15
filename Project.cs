@@ -1,9 +1,8 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks.Dataflow;
+using System.Web;
 
 namespace Olspy;
 
@@ -16,7 +15,7 @@ public sealed class Project
 	///  The cookie that stores Overleaf session tokens
 	/// </summary>
 	private const string SESSION_COOKIE = "sharelatex.sid";
-	
+
 	private const string CSRF_HEADER = "X-CSRF-TOKEN";
 
 	/// <summary>
@@ -34,7 +33,33 @@ public sealed class Project
 	private static readonly Regex CsrfMetaTag = new("<meta +name=\"ol-csrfToken\" *content=\"([^\"]+)\" *>");
 
 	private static string getCsrf(string html)
-		=> CsrfMetaTag.Match(html).Groups[1].Value;
+	{
+		var gr = CsrfMetaTag.Match(html).Groups;
+
+		if(gr.Count < 2)
+			throw new HttpContentException("The received page doesn't contain a CSRF token");
+
+		return gr[1].Value;
+	}
+
+	/// <summary>
+	///  wraps ReadFromJsonAsync() to throw HttpContentException instead of JsonException
+	/// </summary>
+	private static async Task<T> getJson<T>(HttpContent content) where T : class
+	{
+		T? comp;
+
+		try
+		{
+			comp = await content.ReadFromJsonAsync<T>(Protocol.JsonOptions);
+		}
+		catch(JsonException je)
+		{
+			throw new HttpContentException("Server returned invalid JSON", je);
+		}
+
+		return comp ?? throw new HttpContentException("Server returned null object");
+	}
 
 	/// <summary>
 	///  A globally unique ID identifying this project
@@ -69,14 +94,17 @@ public sealed class Project
 	/// <summary>
 	///  Opens a share link, which may be either read/write or read only
 	/// </summary>
+	/// <exception cref="ArgumentNullException"> If `shareLink` is null </exception>
+	/// <exception cref="FormatException"> If `shareLink` isn'T in the expected format </exception>
+	/// <exception cref="HttpStatusException"> If the server responds with an invalid status code </exception>
+	/// <exception cref="HttpContentException"> If the server responds with invalid page content </exception>
+	/// <exception cref="HttpRequestException"> If an internal error occurs while making HTTP requests </exception>
 	public static async Task<Project> Open(Uri shareLink, WebProxy? proxy = null)
 	{
 		ArgumentNullException.ThrowIfNull(shareLink);
 
 		if(! validScheme(shareLink.Scheme))
 			throw new FormatException($"Illegal URI scheme '{shareLink.Scheme}'");
-		if(! shareLink.IsAbsoluteUri)
-			throw new ArgumentException("Expected an absolute URI", nameof(shareLink));
 		if(shareLink.Query.Length > 0)
 			throw new FormatException("Share link shouldn't have a query");
 
@@ -84,7 +112,7 @@ public sealed class Project
 		int omit;
 
 		if(seg[0] != "/")
-			throw new ArgumentException("Expected an absolute URI", nameof(shareLink));
+			throw new FormatException("Share link should be an absolute URI");
 
 		if(seg.Length >= 2 && seg[^2] == "read/" && ReadOnlyTokenPattern.IsMatch(seg[^1]))
 			omit = 2;
@@ -105,10 +133,10 @@ public sealed class Project
 
 		var req = await client.GetAsync(shareLink);
 
-		if(! req.IsSuccessStatusCode)
-			throw new Exception($"Could not GET share link: response code {req.StatusCode})");
+		HttpStatusException.ThrowUnlessSuccessful(req, "trying to GET share link");
+
 		if(handler.CookieContainer.GetAllCookies()[SESSION_COOKIE] is null)
-			throw new Exception("Did not receive a session cookie from share link");
+			throw new HttpContentException("Did not receive a session cookie from share link");
 
 		// note: reading entire body into string first is suboptimal, but the response is ~30K so it doesn't really matter
 		var csrf = getCsrf(await req.Content.ReadAsStringAsync());
@@ -120,17 +148,21 @@ public sealed class Project
 			new{ _csrf = csrf, confirmedByUser = false }
 		);
 
-		if(! grant.IsSuccessStatusCode)
-			throw new Exception($"Request for session grant did not succeed, got {grant.StatusCode}");
+		HttpStatusException.ThrowUnlessSuccessful(grant, "trying to join project. Is the join link correct?");
 
-		var grantC = await grant.Content.ReadFromJsonAsync<Dictionary<string, string>>();
+		var grantC = await getJson<Dictionary<string, string>>(grant.Content);
 
-		if(grantC is null || !grantC.TryGetValue("redirect", out var red))
-			throw new Exception("Join grant did not contain a project redirect URL");
+		if(! grantC.TryGetValue("redirect", out var red))
+			throw new HttpContentException("Join grant did not contain a project redirect URL");
+
+		var redGr = new Regex("/project/([0-9a-fA-F]+)$").Match(red).Groups;
+
+		if(redGr.Count < 2)
+			throw new HttpContentException("Project redirect URL from join grant was not in the expected format");
 
 		// note: I don't know what `red` is relative to if the server has some base prefix
-		var id = new Regex("^/project/([0-9a-fA-F]+)$").Match(red).Groups[1].Value;
-		
+		var id = redGr[1].Value;
+
 		return new Project(id, client);
 	}
 
@@ -141,6 +173,11 @@ public sealed class Project
 	/// <param name="ID"> A project ID </param>
 	/// <param name="session"> The value of the SESSION_COOKIE cookie </param>
 	/// <param name="proxy"> A proxy to use, if any </param>
+	/// <exception cref="ArgumentNullException"> If any argument besides `proxy` is null </exception>
+	/// <exception cref="FormatException"> If `ID` or `host` have invalid format </exception>
+	/// <exception cref="HttpStatusException"> If the server returns any HTTP errors trying to load the project </exception>
+	/// <exception cref="HttpContentException"> If the server returns a page in an invalid format </exception>
+	/// <exception cref="HttpRequestException"> If an internal error occurs while making HTTP requests </exception>
 	public static async Task<Project> Open(Uri host, string ID, string session, WebProxy? proxy = null)
 	{
 		ArgumentNullException.ThrowIfNull(host);
@@ -163,9 +200,7 @@ public sealed class Project
 		};
 
 		var doc = await client.GetAsync($"project/{ID}");
-
-		if(! doc.IsSuccessStatusCode)
-			throw new Exception("Failed to load project page; Are the credentials correct?");
+		HttpStatusException.ThrowUnlessSuccessful(doc, "trying to load the project page. Are the credentials correct?");
 
 		// note: reading into string is suboptimal, the page is ~70K
 		var csrf = getCsrf(await doc.Content.ReadAsStringAsync());
@@ -175,6 +210,17 @@ public sealed class Project
 		return new Project(ID, client);
 	}
 
+	/// <summary>
+	///  Opens a project with user credentials.
+	/// </summary>
+	/// <param name="host"> An uri to the root of the Overleaf site </param>
+	/// <param name="ID"> The ID of the project to open </param>
+	/// <exception cref="ArgumentNullException"> If any argument besides `proxy` is null </exception>
+	/// <exception cref="FormatException"> If `ID` or `host` have invalid format </exception>
+	/// <exception cref="HttpStatusException"> If the server returns any HTTP errors trying to load the project </exception>
+	/// <exception cref="HttpContentException"> If the server returns a page in an invalid format </exception>
+	/// <exception cref="HttpRequestException"> If an internal error occurs while making HTTP requests </exception>
+	///
 	public static async Task<Project> Open(Uri host, string ID, string email, string password, WebProxy? proxy = null)
 	{
 		ArgumentNullException.ThrowIfNull(host);
@@ -197,8 +243,7 @@ public sealed class Project
 
 		var loginPage = await client.GetAsync("login");
 
-		if(! loginPage.IsSuccessStatusCode)
-			throw new Exception($"Could not GET login page, got code {loginPage.StatusCode}. Is the host URI correct?");
+		HttpStatusException.ThrowUnlessSuccessful(loginPage, "trying to GET login page. Is the host URI correct?");
 
 		var csrf = getCsrf(await loginPage.Content.ReadAsStringAsync());
 		client.DefaultRequestHeaders.Add(CSRF_HEADER, csrf);
@@ -209,11 +254,11 @@ public sealed class Project
 			password
 		});
 
-		if(! login.IsSuccessStatusCode)
-			throw new Exception($"Failed to log in with code {login.StatusCode}. Are the credentials correct?");
+		HttpStatusException.ThrowUnlessSuccessful(login, "Trying to log in. Are the credentials correct?");
+
 		if(handler.CookieContainer.GetAllCookies()[SESSION_COOKIE] is null)
 			throw new Exception("Did not receive a session cookie after login");
-		
+
 		return new Project(ID, client);
 	}
 
@@ -225,16 +270,17 @@ public sealed class Project
 	/// <param name="check"> Observed values: silent </param>
 	/// <param name="incremental"></param>
 	/// <param name="stopOnFirstError"> Whether to stop on error or continue compiling </param>
-	/// <returns></returns>
+	/// <exception cref="HttpStatusException"> If the server returns any HTTP errors  </exception>
+	/// <exception cref="HttpContentException"> If the server returns invalid JSON data </exception>
+	/// <exception cref="HttpRequestException"> If an internal error occurs while making HTTP requests </exception>
 	public async Task<Protocol.CompileInfo> Compile(string? rootDoc = null, bool draft = false, string check = "silent", bool incremental = true, bool stopOnFirstError = false)
 	{
 		var res = await client.PostAsJsonAsync($"project/{ID}/compile?",
 			new{ rootDoc_id = rootDoc, draft, check, incrementalCompilesEnabled = incremental, stopOnFirstError });
 
-		if(! res.IsSuccessStatusCode)
-			throw new Exception($"Bad status code requesting compile: got {res.StatusCode}");
-		
-		return (await res.Content.ReadFromJsonAsync<Protocol.CompileInfo>(Protocol.JsonOptions)) ?? throw new Exception("Compile API returned null object", null);
+		HttpStatusException.ThrowUnlessSuccessful(res, "trying to request compilation");
+
+		return await getJson<Protocol.CompileInfo>(res.Content);
 	}
 
 	public async Task<string[]> GetDocumentByID(string docID)
@@ -262,13 +308,13 @@ public sealed class Project
 	///  Retrieves a file from a previously successful compilation
 	/// </summary>
 	/// <param name="f"> A file listed in the record returned by Compile() </param>
+	/// <exception cref="HttpStatusException"> If the server returns any HTTP errors  </exception>
 	public async Task<HttpContent> GetOutFile(Protocol.OutputFile f)
 	{
 		var resp = await client.GetAsync($"project/{ID}/build/{f.Build}/output/{f.Path}");
 
-		if(! resp.IsSuccessStatusCode)
-			throw new Exception($"Failed to GET compilation result: Status code is {(int)resp.StatusCode} ({resp.StatusCode})");
-		
+		HttpStatusException.ThrowUnlessSuccessful(resp, "trying to GET compilation result");
+
 		return resp.Content;
 	}
 
@@ -277,20 +323,23 @@ public sealed class Project
 	///  The return is sorted new to old.
 	/// </summary>
 	/// <remarks> Required read AND write permissions. A read-only share link will not work. </remarks>
+	/// <exception cref="HttpStatusException"> If the server returns any HTTP errors </exception>
+	/// <exception cref="HttpContentException"> If the server returns invalid JSON data </exception>
+	/// <exception cref="HttpRequestException"> If an internal error occurs while making HTTP requests </exception>
 	public async Task<Protocol.Update[]> GetUpdateHistory()
 	{
 		var resp = await client.GetAsync($"project/{ID}/updates");
 
-		if(! resp.IsSuccessStatusCode)
-			throw new Exception($"Failed to GET update history: Status code is {(int)resp.StatusCode} ({resp.StatusCode})");
+		HttpStatusException.ThrowUnlessSuccessful(resp, "trying to GET update history");
 
-		return (await resp.Content.ReadFromJsonAsync<Protocol.WrappedUpdates>(Protocol.JsonOptions))?.Updates
-			?? throw new Exception("Received null object trying to GET update history");
+		return (await getJson<Protocol.WrappedUpdates>(resp.Content)).Updates;
 	}
 
 	/// <summary>
 	///  Initializes a websocket instance for this project
 	/// </summary>
+	/// <exception cref="HttpStatusException"> If the server returns any HTTP errors </exception>
+	/// <exception cref="HttpRequestException"> If an internal error occurs while making HTTP requests </exception>
 	public Task<ProjectSession> Join()
 		=> ProjectSession.Connect(this, client);
 

@@ -47,8 +47,7 @@ public sealed class ProjectSession : IAsyncDisposable
 		var time = (long)(DateTime.UtcNow - DateTime.UnixEpoch).TotalMilliseconds;
 		var sock = await client.GetAsync($"socket.io/1/?projectId={project.ID}&t={time}");
 
-		if(! sock.IsSuccessStatusCode)
-			throw new Exception($"Got status {sock.StatusCode} trying to retrieve socket metadata for project");
+		HttpStatusException.ThrowUnlessSuccessful(sock, "trying to retrieve socket metadata for project");
 
 		var cont = await sock.Content.ReadAsStringAsync();
 
@@ -103,15 +102,15 @@ public sealed class ProjectSession : IAsyncDisposable
 				// cancelling this receive *might* kill the socket, so the cancels are staggered
 				try
 				{
-					msg = await socket.ReceiveCompleteAsync(listenSource.Token);				
+					msg = await socket.ReceiveCompleteAsync(listenSource.Token);
 				}
-				catch(WebSocketException) when(sendSource.IsCancellationRequested)
+				catch(System.Net.WebSockets.WebSocketException) when(sendSource.IsCancellationRequested)
 				{
 					// Closure doesn't work right and sometimes triggers
 					// "The remote party closed the WebSocket connection without completing the close handshake"
 					// not sure if it's my fault, .NET's or the Overleaf's
 					// just ignore this exception since we're closing the socket anyways
-					return;	
+					return;
 				}
 
 				if(msg.Type == WebSocketMessageType.Close || Left)
@@ -129,7 +128,7 @@ public sealed class ProjectSession : IAsyncDisposable
 					continue;
 				}
 
-				try 
+				try
 				{
 					switch(pkt.OpCode)
 					{
@@ -260,9 +259,10 @@ public sealed class ProjectSession : IAsyncDisposable
 	}
 
 	/// <summary>
-	///  Retrieves the project information 
+	///  Retrieves the project information
 	///  Waits for the server-side join handshake to complete which sends project information.
 	/// </summary>
+	/// <exception cref="OperationCanceledException"> If the server's response isn't received before the timeout </exception>
 	public async Task<Protocol.JoinProjectArgs> GetProjectInfo(CancellationToken ct)
 	{
 		var lts = CancellationTokenSource.CreateLinkedTokenSource(listenSource.Token, ct);
@@ -278,18 +278,26 @@ public sealed class ProjectSession : IAsyncDisposable
 	/// </summary>
 	/// <param name="ID"> A file ID found in the project information </param>
 	/// <returns> The lines of that document </returns>
-	/// <exception cref="OverleafException"> When the server returns an error message, e.g. when the file ID doesn't exist </exception>
+	/// <exception cref="WebSocketException"> When the server returns an error message, e.g. when the file ID doesn't exist </exception>
 	public async Task<string[]> GetDocumentByID(string ID)
 	{
-		var req = await sendRPC(Protocol.RPC_JOIN_DOCUMENT, [ ID, new{ encodeRanges = true } ]);
+		var req = await sendRPC(RPC_JOIN_DOCUMENT, [ ID, new{ encodeRanges = true } ]);
 
 		if(req[0] is not null)
-			throw new OverleafException("Failed document ID lookup", req[0]!);
+			throw new WebSocketException("Failed document ID lookup", req[0]!);
 
-		await sendRPC(Protocol.RPC_LEAVE_DOCUMENT, [ ID ]);
+		await sendRPC(RPC_LEAVE_DOCUMENT, [ ID ]);
+		string[] lines;
 
-		// TODO: figure out what the other entries do
-		var lines = req[1]!.AsArray()!.Deserialize<string[]>()!;
+		try
+		{
+			// TODO: figure out what the other entries do
+			lines = req[1]!.AsArray()!.Deserialize<string[]>()!;
+		}
+		catch(Exception ex) when (ex is IndexOutOfRangeException or JsonException)
+		{
+			throw new WebSocketException("Invalid response format for joinDoc response", req, ex);
+		}
 
 		for (int i = 0; i < lines.Length; i++)
 			lines[i] = Protocol.UnMangle(lines[i]);
