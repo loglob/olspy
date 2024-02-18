@@ -45,13 +45,13 @@ public sealed class Project
 	/// <summary>
 	///  wraps ReadFromJsonAsync() to throw HttpContentException instead of JsonException
 	/// </summary>
-	private static async Task<T> getJson<T>(HttpContent content) where T : class
+	private static async Task<T> getJson<T>(HttpContent content, CancellationToken ct) where T : class
 	{
 		T? comp;
 
 		try
 		{
-			comp = await content.ReadFromJsonAsync<T>(Protocol.JsonOptions);
+			comp = await content.ReadFromJsonAsync<T>(Protocol.JsonOptions, ct);
 		}
 		catch(JsonException je)
 		{
@@ -59,28 +59,6 @@ public sealed class Project
 		}
 
 		return comp ?? throw new HttpContentException("Server returned null object");
-	}
-
-	/// <summary>
-	///  A globally unique ID identifying this project
-	/// </summary>
-	public readonly string ID;
-
-	/// <summary>
-	///  Cached project information
-	/// </summary>
-	internal Protocol.JoinProjectArgs? info = null;
-
-	/// <summary>
-	///  The http client to make requests through.
-	///  Configured with base address, (possibly) a proxy and a CSRF token header.
-	/// </summary>
-	private readonly HttpClient client;
-
-	private Project(string id, HttpClient client)
-	{
-		this.ID = id;
-		this.client = client;
 	}
 
 	/// <returns> Whether a scheme is valid for an overleaf link </returns>
@@ -117,7 +95,7 @@ public sealed class Project
 	/// <exception cref="HttpContentException"> If the server responds with invalid page content </exception>
 	/// <exception cref="HttpRequestException"> If an internal error occurs while making HTTP requests </exception>
 	/// <exception cref="TaskCanceledException"> If the configured HttpTimeout is exceeded </exception>
-	public static async Task<Project> Open(Uri shareLink, ProjectOptions options = default)
+	public static async Task<Project> Open(Uri shareLink, ProjectOptions options = default, CancellationToken ct = default)
 	{
 		ArgumentNullException.ThrowIfNull(shareLink);
 
@@ -141,7 +119,7 @@ public sealed class Project
 
 		var (handler, client) = configureClient(new Uri(shareLink, string.Join("", seg.SkipLast(omit))), options);
 
-		var req = await client.GetAsync(shareLink);
+		var req = await client.GetAsync(shareLink, ct);
 
 		HttpStatusException.ThrowUnlessSuccessful(req, "trying to GET share link");
 
@@ -149,18 +127,19 @@ public sealed class Project
 			throw new HttpContentException("Did not receive a session cookie from share link");
 
 		// note: reading entire body into string first is suboptimal, but the response is ~30K so it doesn't really matter
-		var csrf = getCsrf(await req.Content.ReadAsStringAsync());
+		var csrf = getCsrf(await req.Content.ReadAsStringAsync(ct));
 
 		client.DefaultRequestHeaders.Add(CSRF_HEADER, csrf);
 
 		var grant = await client.PostAsJsonAsync(
 			shareLink.AbsolutePath + "/grant",
-			new{ _csrf = csrf, confirmedByUser = false }
+			new{ _csrf = csrf, confirmedByUser = false },
+			ct
 		);
 
 		HttpStatusException.ThrowUnlessSuccessful(grant, "trying to join project. Is the join link correct?");
 
-		var grantC = await getJson<Dictionary<string, string>>(grant.Content);
+		var grantC = await getJson<Dictionary<string, string>>(grant.Content, ct);
 
 		if(! grantC.TryGetValue("redirect", out var red))
 			throw new HttpContentException("Join grant did not contain a project redirect URL");
@@ -189,7 +168,7 @@ public sealed class Project
 	/// <exception cref="HttpContentException"> If the server returns a page in an invalid format </exception>
 	/// <exception cref="HttpRequestException"> If an internal error occurs while making HTTP requests </exception>
  	/// <exception cref="TaskCanceledException"> If the configured HttpTimeout is exceeded </exception>
-	public static async Task<Project> Open(Uri host, string ID, string session, ProjectOptions options = default)
+	public static async Task<Project> Open(Uri host, string ID, string session, ProjectOptions options = default, CancellationToken ct = default)
 	{
 		ArgumentNullException.ThrowIfNull(host);
 		ArgumentNullException.ThrowIfNull(ID);
@@ -203,11 +182,11 @@ public sealed class Project
 		var (handler, client) = configureClient(host, options);
 		handler.CookieContainer.Add(new Cookie( SESSION_COOKIE, session ));
 
-		var doc = await client.GetAsync($"project/{ID}");
+		var doc = await client.GetAsync($"project/{ID}", ct);
 		HttpStatusException.ThrowUnlessSuccessful(doc, "trying to load the project page. Are the credentials correct?");
 
 		// note: reading into string is suboptimal, the page is ~70K
-		var csrf = getCsrf(await doc.Content.ReadAsStringAsync());
+		var csrf = getCsrf(await doc.Content.ReadAsStringAsync(ct));
 
 		client.DefaultRequestHeaders.Add(CSRF_HEADER, csrf);
 
@@ -225,7 +204,7 @@ public sealed class Project
 	/// <exception cref="HttpContentException"> If the server returns a page in an invalid format </exception>
 	/// <exception cref="HttpRequestException"> If an internal error occurs while making HTTP requests </exception>
 	/// <exception cref="TaskCanceledException"> If the configured HttpTimeout is exceeded </exception>
-	public static async Task<Project> Open(Uri host, string ID, string email, string password, ProjectOptions options = default)
+	public static async Task<Project> Open(Uri host, string ID, string email, string password, ProjectOptions options = default, CancellationToken ct = default)
 	{
 		ArgumentNullException.ThrowIfNull(host);
 		ArgumentNullException.ThrowIfNull(ID);
@@ -239,7 +218,7 @@ public sealed class Project
 
 		var (handler, client) = configureClient(host, options);
 		
-		var loginPage = await client.GetAsync("login");
+		var loginPage = await client.GetAsync("login", ct);
 
 		HttpStatusException.ThrowUnlessSuccessful(loginPage, "trying to GET login page. Is the host URI correct?");
 
@@ -250,7 +229,7 @@ public sealed class Project
 			_csrf = csrf,
 			email,
 			password
-		});
+		}, ct);
 
 		HttpStatusException.ThrowUnlessSuccessful(login, "Trying to log in. Are the credentials correct?");
 
@@ -258,6 +237,28 @@ public sealed class Project
 			throw new Exception("Did not receive a session cookie after login");
 
 		return new Project(ID, client);
+	}
+
+	/// <summary>
+	///  A globally unique ID identifying this project
+	/// </summary>
+	public readonly string ID;
+
+	/// <summary>
+	///  Cached project information
+	/// </summary>
+	internal Protocol.JoinProjectArgs? info = null;
+
+	/// <summary>
+	///  The http client to make requests through.
+	///  Configured with base address, (possibly) a proxy and a CSRF token header.
+	/// </summary>
+	private readonly HttpClient client;
+
+	private Project(string id, HttpClient client)
+	{
+		this.ID = id;
+		this.client = client;
 	}
 
 	/// <summary>
@@ -272,14 +273,15 @@ public sealed class Project
 	/// <exception cref="HttpContentException"> If the server returns invalid JSON data </exception>
 	/// <exception cref="HttpRequestException"> If an internal error occurs while making HTTP requests </exception>
 	/// <exception cref="TaskCanceledException"> If the configured HttpTimeout is exceeded </exception>
-	public async Task<Protocol.CompileInfo> Compile(string? rootDoc = null, bool draft = false, string check = "silent", bool incremental = true, bool stopOnFirstError = false)
+	public async Task<Protocol.CompileInfo> Compile(string? rootDoc = null, bool draft = false, string check = "silent", bool incremental = true, bool stopOnFirstError = false, CancellationToken ct = default)
 	{
 		var res = await client.PostAsJsonAsync($"project/{ID}/compile?",
-			new{ rootDoc_id = rootDoc, draft, check, incrementalCompilesEnabled = incremental, stopOnFirstError });
+			new{ rootDoc_id = rootDoc, draft, check, incrementalCompilesEnabled = incremental, stopOnFirstError },
+			ct);
 
 		HttpStatusException.ThrowUnlessSuccessful(res, "trying to request compilation");
 
-		return await getJson<Protocol.CompileInfo>(res.Content);
+		return await getJson<Protocol.CompileInfo>(res.Content, ct);
 	}
 
 	public async Task<string[]> GetDocumentByID(string docID)
@@ -292,12 +294,12 @@ public sealed class Project
 	///  Retrieves general project information, containing its file structure
 	/// </summary>
 	/// <param name="cache"> If false, do not return cached information but always make a new web request </param>
-	public async ValueTask<Protocol.JoinProjectArgs> GetInfo(bool cache = true)
+	public async ValueTask<Protocol.JoinProjectArgs> GetInfo(bool cache = true, CancellationToken ct = default)
 	{
 		if(!cache || info is null)
 		{
-			await using var jp = await Join();
-			return await jp.GetProjectInfo();
+			await using var jp = await Join(ct);
+			return await jp.GetProjectInfo(ct);
 		}
 		else
 			return info;
@@ -309,9 +311,9 @@ public sealed class Project
 	/// <param name="f"> A file listed in the record returned by Compile() </param>
 	/// <exception cref="HttpStatusException"> If the server returns any HTTP errors  </exception>
 	/// <exception cref="TaskCanceledException"> If the configured HttpTimeout is exceeded </exception>
-	public async Task<HttpContent> GetOutFile(Protocol.OutputFile f)
+	public async Task<HttpContent> GetOutFile(Protocol.OutputFile f, CancellationToken ct = default)
 	{
-		var resp = await client.GetAsync($"project/{ID}/build/{f.Build}/output/{f.Path}");
+		var resp = await client.GetAsync($"project/{ID}/build/{f.Build}/output/{f.Path}", ct);
 
 		HttpStatusException.ThrowUnlessSuccessful(resp, "trying to GET compilation result");
 
@@ -327,13 +329,13 @@ public sealed class Project
 	/// <exception cref="HttpContentException"> If the server returns invalid JSON data </exception>
 	/// <exception cref="HttpRequestException"> If an internal error occurs while making HTTP requests </exception>
 	/// <exception cref="TaskCanceledException"> If the configured HttpTimeout is exceeded </exception>
-	public async Task<Protocol.Update[]> GetUpdateHistory()
+	public async Task<Protocol.Update[]> GetUpdateHistory(CancellationToken ct = default)
 	{
-		var resp = await client.GetAsync($"project/{ID}/updates");
+		var resp = await client.GetAsync($"project/{ID}/updates", ct);
 
 		HttpStatusException.ThrowUnlessSuccessful(resp, "trying to GET update history");
 
-		return (await getJson<Protocol.WrappedUpdates>(resp.Content)).Updates;
+		return (await getJson<Protocol.WrappedUpdates>(resp.Content, ct)).Updates;
 	}
 
 	/// <summary>
@@ -341,7 +343,7 @@ public sealed class Project
 	/// </summary>
 	/// <exception cref="HttpStatusException"> If the server returns any HTTP errors </exception>
 	/// <exception cref="HttpRequestException"> If an internal error occurs while making HTTP requests </exception>
-	public Task<ProjectSession> Join()
-		=> ProjectSession.Connect(this, client);
+	public Task<ProjectSession> Join(CancellationToken ct = default)
+		=> ProjectSession.Connect(this, client, ct);
 
 }

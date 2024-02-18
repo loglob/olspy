@@ -36,7 +36,7 @@ internal class WriteOnce<T> where T : class
 	///  Reads the register's value.
 	///  Waits until `Write()` is used and any concurrent `Compute()` finish.
 	/// </summary>
-	public async Task<T> Read(CancellationToken ct)
+	public async Task<T> Read(CancellationToken ct = default)
 	{
 		await sem.WaitAsync(ct);
 		var x = value!;
@@ -45,13 +45,10 @@ internal class WriteOnce<T> where T : class
 		return x;
 	}
 
-	public Task<T> Read()
-		=> Read(CancellationToken.None);
-
 	/// <summary>
 	///  Runs a computation that has requires exclusive access to the shared resource
 	/// </summary>
-	public async Task<S> Compute<S>(Func<T, S> func, CancellationToken ct)
+	public async Task<S> Compute<S>(Func<T, S> func, CancellationToken ct = default)
 	{
 		await sem.WaitAsync(ct);
 		try
@@ -64,10 +61,7 @@ internal class WriteOnce<T> where T : class
 		}
 	}
 
-	public Task<S> Compute<S>(Func<T, S> func)
-		=> Compute(func, CancellationToken.None);
-
-	public async Task<S> ComputeAsync<S>(Func<T, CancellationToken, Task<S>> func, CancellationToken ct)
+	public async Task<S> ComputeAsync<S>(Func<T, CancellationToken, Task<S>> func, CancellationToken ct = default)
 	{
 		await sem.WaitAsync(ct);
 		try
@@ -79,7 +73,4 @@ internal class WriteOnce<T> where T : class
 			sem.Release();		
 		}
 	}
-
-	public Task<S> ComputeAsync<S>(Func<T, Task<S>> func)
-		=> ComputeAsync((x, _) => func(x), CancellationToken.None);
 }

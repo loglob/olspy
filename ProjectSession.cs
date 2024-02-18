@@ -47,20 +47,20 @@ public sealed class ProjectSession : IAsyncDisposable
 		this.sender = sendLoop();
 	}
 
-	internal static async Task<ProjectSession> Connect(Project project, HttpClient client)
+	internal static async Task<ProjectSession> Connect(Project project, HttpClient client, CancellationToken ct = default)
 	{
 		var time = (long)(DateTime.UtcNow - DateTime.UnixEpoch).TotalMilliseconds;
-		var sock = await client.GetAsync($"socket.io/1/?projectId={project.ID}&t={time}");
+		var sock = await client.GetAsync($"socket.io/1/?projectId={project.ID}&t={time}", ct);
 
 		HttpStatusException.ThrowUnlessSuccessful(sock, "trying to retrieve socket metadata for project");
 
-		var cont = await sock.Content.ReadAsStringAsync();
+		var cont = await sock.Content.ReadAsStringAsync(ct);
 
 		var key = cont.Split(':')[0];
 
 		var wsc = new ClientWebSocket();
 
-		await wsc.ConnectAsync(new Uri(client.BaseAddress!, $"socket.io/1/websocket/{key}?projectId={project.ID}").WithScheme("wss"), client, CancellationToken.None);
+		await wsc.ConnectAsync(new Uri(client.BaseAddress!, $"socket.io/1/websocket/{key}?projectId={project.ID}").WithScheme("wss"), client, ct);
 
 		return new ProjectSession(project, wsc);
 	}
@@ -198,7 +198,7 @@ public sealed class ProjectSession : IAsyncDisposable
 	/// <summary>
 	///  Sends an RPC message, then awaits a response
 	/// </summary>
-	private async Task<JsonArray> sendRPC(string kind, object[] args)
+	private async Task<JsonArray> sendRPC(string kind, object[] args, CancellationToken ct)
 	{
 		uint n = Interlocked.Increment(ref packetNumber);
 		var obj = new { name = kind, args };
@@ -213,7 +213,7 @@ public sealed class ProjectSession : IAsyncDisposable
 		sendQueue.Enqueue(new( Encoding.UTF8.GetBytes(dat), WebSocketMessageType.Text ));
 
 		var tick = new CancellationTokenSource(Timeout);
-		return await res.Read(CancellationTokenSource.CreateLinkedTokenSource(tick.Token, listenSource.Token, sendSource.Token).Token);
+		return await res.Read(CancellationTokenSource.CreateLinkedTokenSource(tick.Token, listenSource.Token, sendSource.Token, ct).Token);
 	}
 
 
@@ -271,7 +271,7 @@ public sealed class ProjectSession : IAsyncDisposable
 	public async Task<Protocol.JoinProjectArgs> GetProjectInfo(CancellationToken ct = default)
 	{
 		var timer = new CancellationTokenSource(Timeout);
-		var lts = CancellationTokenSource.CreateLinkedTokenSource([ listenSource.Token, ct, timer.Token ]);
+		var lts = CancellationTokenSource.CreateLinkedTokenSource( listenSource.Token, ct, timer.Token );
 
 		return await joinArgs.Read(lts.Token);
 	}
@@ -283,14 +283,14 @@ public sealed class ProjectSession : IAsyncDisposable
 	/// <returns> The lines of that document </returns>
 	/// <exception cref="WebSocketException"> When the server returns an error message, e.g. when the file ID doesn't exist </exception>
 	/// <exception cref="OperationCanceledException"> If the server's response isn't received before the timeout </exception>
-	public async Task<string[]> GetDocumentByID(string ID)
+	public async Task<string[]> GetDocumentByID(string ID, CancellationToken ct = default)
 	{
-		var req = await sendRPC(RPC_JOIN_DOCUMENT, [ ID, new{ encodeRanges = true } ]);
+		var req = await sendRPC(RPC_JOIN_DOCUMENT, [ ID, new{ encodeRanges = true } ], ct);
 
 		if(req[0] is not null)
 			throw new WebSocketException("Failed document ID lookup", req[0]!);
 
-		await sendRPC(RPC_LEAVE_DOCUMENT, [ ID ]);
+		await sendRPC(RPC_LEAVE_DOCUMENT, [ ID ], ct);
 		string[] lines;
 
 		try

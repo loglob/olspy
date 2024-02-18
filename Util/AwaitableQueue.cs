@@ -25,7 +25,7 @@ internal class AwaitableQueue<T>
 		count.Release();
 	}
 
-	public async Task<T> Dequeue(CancellationToken ct)
+	public async Task<T> Dequeue(CancellationToken ct = default)
 	{
 		await count.WaitAsync(ct);
 		
@@ -35,7 +35,4 @@ internal class AwaitableQueue<T>
 
 		return x;
 	}
-
-	public Task<T> Dequeue()
-		=> Dequeue(CancellationToken.None);
 }
