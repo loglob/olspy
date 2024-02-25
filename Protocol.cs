@@ -293,11 +293,82 @@ public static class Protocol
 		int Total
 	);
 
+	[JsonConverter(typeof(EnumKebabCaseConverter<CompileStatus>))]
+	public enum CompileStatus
+	{ 
+		/// <summary>
+		///  A PDF was produced, but there may have been non-fatal errors
+		/// </summary>
+		Success,
+		/// <summary>
+		///  No PDF was produced due to a fatal error in the latex source code
+		/// </summary>
+		Failure,
+		/// <summary>
+		///  Either another compilation is already running or one finished very recently
+		/// </summary>
+		TooRecentlyCompiled,
+		/// <summary>
+		///  Auto-compile is enabled and a rate limit was hit
+		/// </summary>
+		AutocompileBackoff,
+		/// <summary>
+		///  Corresponds to internal HTTP code 409.
+		///  Probably transient.
+		/// </summary>
+		Conflict,
+		/// <summary>
+		///  Internal compile server is temporarily unavailable.
+		///  Corresponds to internal HTTP code 503.
+		///  Also returned when the server is shutting down.
+		/// </summary>
+		Unavailable,
+		/// <summary>
+		///  Could not run compile because the latex configuration was invalid
+		/// </summary>
+		ValidationProblems,
+		/// <summary>
+		///  Corresponds to internal HTTP code 423
+		/// </summary>
+		CompileInProgress,
+		/// <summary>
+		///  Internal compile API hit some size limit
+		/// </summary>
+		ProjectTooLarge,
+		/// <summary>
+		///  Equivalent (?) to Failure if stoppedOnFirstError is active
+		/// </summary>
+		StoppedOnFirstError,
+		/// <summary>
+		///  Unknown internal error
+		/// </summary>
+		Error,
+		Timedout,
+		Terminated,
+		/// <summary>
+		///  Files weren't synchronized properly.
+		///  Transient.
+		/// </summary>
+		Retry,
+		/// <summary>
+		///  A compile run failed on validation.
+		/// </summary>
+		ValidationFail,
+		/// <summary>
+		///  A validation-only (no compile) run was successful
+		/// </summary>
+		ValidationPass
+	}
+
 	/// <summary>
 	///  Information returned by a compile API call
 	/// </summary>
+	/// <param name="Status">
+	/// 	Whether compile was successful or failed due to some error.
+	/// 	Note that Success is also returned if there were recoverable compilation errors. 
+	/// </param>
 	/// <param name="OutputFiles">
-	/// 	"success" if a PDF was produced, "failure" otherwise.
+	/// 	Every file produced by the compilation.
 	/// 	Note that a PDF may be produced even if there were compile errors.
 	/// </param>
 	/// <param name="OutputFiles"></param>
@@ -306,7 +377,7 @@ public static class Protocol
 	/// <param name="Timings"></param>
 	/// <returns></returns>
 	public sealed record CompileInfo(
-		string Status,
+		CompileStatus Status,
 		OutputFile[] OutputFiles,
 		string CompileGroup,
 		CompileStats Stats,
@@ -317,7 +388,7 @@ public static class Protocol
 		/// </summary>
 		public bool IsSuccess([MaybeNullWhen(false)] out OutputFile pdf)
 		{
-			if(Status != "success")
+			if(Status != CompileStatus.Success)
 			{
 				pdf = null;
 				return false;
@@ -496,10 +567,10 @@ public static class Protocol
 	/// <param name="Origin"></param>
 	public sealed record UpdateMeta(
 		object[] Users,
-		[property: JsonConverter(typeof(Olspy.Util.TimeStampConverter))]
+		[property: JsonConverter(typeof(TimeStampConverter))]
 		[property: JsonPropertyName("start_ts")]
 		DateTime Start,
-		[property: JsonConverter(typeof(Olspy.Util.TimeStampConverter))]
+		[property: JsonConverter(typeof(TimeStampConverter))]
 		[property: JsonPropertyName("end_ts")]
 		DateTime End,
 		UpdateMetaOrigin? Origin
