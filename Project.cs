@@ -12,9 +12,14 @@ namespace Olspy;
 public sealed class Project
 {
 	/// <summary>
-	///  The cookie that stores Overleaf session tokens
+	///  The cookie that stores Overleaf session tokens before version 5.0
 	/// </summary>
 	private const string SESSION_COOKIE = "sharelatex.sid";
+
+	/// <summary>
+	///  The cookie that stores Overleaf session tokens after version 5.0
+	/// </summary>
+	private const string NEW_SESSION_COOKIE = "overleaf.sid";
 
 	private const string CSRF_HEADER = "X-CSRF-TOKEN";
 
@@ -122,8 +127,9 @@ public sealed class Project
 		var req = await client.GetAsync(shareLink, ct);
 
 		HttpStatusException.ThrowUnlessSuccessful(req, "trying to GET share link");
+		var ck = handler.CookieContainer.GetAllCookies();
 
-		if(handler.CookieContainer.GetAllCookies()[SESSION_COOKIE] is null)
+		if(ck[SESSION_COOKIE] is null && ck[NEW_SESSION_COOKIE] is null)
 			throw new HttpContentException("Did not receive a session cookie from share link");
 
 		// note: reading entire body into string first is suboptimal, but the response is ~30K so it doesn't really matter
@@ -222,7 +228,7 @@ public sealed class Project
 
 		HttpStatusException.ThrowUnlessSuccessful(loginPage, "trying to GET login page. Is the host URI correct?");
 
-		var csrf = getCsrf(await loginPage.Content.ReadAsStringAsync());
+		var csrf = getCsrf(await loginPage.Content.ReadAsStringAsync(ct));
 		client.DefaultRequestHeaders.Add(CSRF_HEADER, csrf);
 
 		var login = await client.PostAsJsonAsync("login", new{
@@ -233,7 +239,9 @@ public sealed class Project
 
 		HttpStatusException.ThrowUnlessSuccessful(login, "Trying to log in. Are the credentials correct?");
 
-		if(handler.CookieContainer.GetAllCookies()[SESSION_COOKIE] is null)
+		var ck = handler.CookieContainer.GetAllCookies();
+
+		if(ck[SESSION_COOKIE] is null && ck[NEW_SESSION_COOKIE] is null)
 			throw new Exception("Did not receive a session cookie after login");
 
 		return new Project(ID, client);

@@ -698,7 +698,11 @@ public static class Protocol
 	///  The wrapped Update array that Overleaf returns
 	/// </summary>
 	public sealed record WrappedUpdates(
-		Update[] Updates
+		Update[] Updates,	
+		/// <summary>
+		///  Added in overleaf 5.0
+		/// </summary>
+		int NextBeforeTimestamp
 	);
 
 	/// <summary>
