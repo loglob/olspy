@@ -1,8 +1,9 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Web;
 
 namespace Olspy;
 
@@ -354,4 +355,83 @@ public sealed class Project
 	public Task<ProjectSession> Join(CancellationToken ct = default)
 		=> ProjectSession.Connect(this, client, ct);
 
+	/// <summary>
+	///  The current state during log parsing
+	/// </summary>
+	private enum LogState
+	{
+		/// <summary> No special context </summary>
+		INITIAL,
+		/// <summary> Last line began with `!` </summary>
+		GOT_BANG,
+		/// <summary> last line was `<inserted text>`, or a subsequent indented line </summary>
+		INSERTED_TEXT,
+	}
+
+	/// <summary>
+	///  Attempts to retrieve the compiler warnings for a compilation.
+	/// </summary>
+	/// <returns> The extracted compiler warnings, if any. </returns>
+	public async IAsyncEnumerable<string> ReadLogs(Protocol.CompileInfo compilation, [EnumeratorCancellation] CancellationToken ct = default)
+	{
+		var log = compilation.OutputFiles.FirstOrDefault(f => f!.Path.EndsWith(".log"), null);
+
+		if(log is null)
+			yield break;
+
+        using var data = await GetOutFile(log, ct);
+        using var content = await data.ReadAsStreamAsync(ct);
+		using var reader = new StreamReader(content);
+		var cur = new StringBuilder();
+		var state = LogState.INITIAL;
+
+		for(; ; )
+		{
+			var line = await reader.ReadLineAsync(ct);
+
+			if(line is null)
+				yield break;
+
+			line = line.TrimEnd();
+			
+			switch(state)
+			{
+				case LogState.INITIAL:
+				{
+					if(line.StartsWith("!"))
+					{
+						cur.Clear();
+						cur.Append(line, 1, line.Length - 1);
+						state = LogState.GOT_BANG;
+					}
+				}
+				break;
+
+				case LogState.GOT_BANG:
+				finish_message:
+				{
+					if(line == "<inserted text>")
+						state = LogState.INSERTED_TEXT;
+					else if(line.Length == 0)
+					{
+						state = LogState.INITIAL;
+						yield return cur.ToString();
+					}
+					else
+					{
+						cur.Append('\n');
+						cur.Append(line);
+					}
+				}
+				break;
+
+				case LogState.INSERTED_TEXT:
+				{
+					if(line.Length == 0 || !char.IsWhiteSpace(line[0]))
+						goto finish_message;
+				}
+				break;
+			}
+		}
+	}
 }
