@@ -7,6 +7,7 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageVersion>2.2.2</PackageVersion>
     <Authors>loglob</Authors>
+    <PackageLicenseExpression>LGPL-3.0-only</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/loglob/olspy</RepositoryUrl>
     <RepositoryBranch>v2</RepositoryBranch>
     <Description>Allows basic read-only API access to an overleaf instance</Description>
