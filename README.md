@@ -13,6 +13,12 @@ A basic read-only API for Overleaf
 - Make edits in a document
 - Observe real-time edits to a document
 
+## Installation
+The package is available via [nuget](https://www.nuget.org/packages/olspy), so you can add it to your project with
+```
+dotnet add package olspy
+```
+
 ## Usage
 First, open a project using one of the overloads of `Olspy.Project.Open()`:
 ```cs
