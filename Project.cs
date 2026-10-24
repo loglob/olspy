@@ -271,21 +271,39 @@ public sealed class Project
 	}
 
 	/// <summary>
-	///  Compiles the project
+	///  Compiles the project.
 	/// </summary>
-	/// <param name="rootDoc"> The tex document to use as main file. Use null for the default main file. </param>
+	/// <param name="rootDoc"> The tex document to use as main file. Use null for the default main file. Auto-filled if `rootResourcePath` is set. </param>
 	/// <param name="draft"> Whether to run a draft compile </param>
 	/// <param name="check"> Observed values: silent </param>
 	/// <param name="incremental"></param>
 	/// <param name="stopOnFirstError"> Whether to stop on error or continue compiling </param>
+	/// <param name="rootResourcePath"> The file path corresponding to `rootDoc`. Auto-filled if `rootDoc` is set. </param>
+	/// <exception cref="ArgumentException"> If exactly one of `rootResourcePath` or `rootDoc` is not null, and that path/id does not exist.  </exception>
 	/// <exception cref="HttpStatusException"> If the server returns any HTTP errors  </exception>
 	/// <exception cref="HttpContentException"> If the server returns invalid JSON data </exception>
 	/// <exception cref="HttpRequestException"> If an internal error occurs while making HTTP requests </exception>
 	/// <exception cref="TaskCanceledException"> If the configured HttpTimeout is exceeded </exception>
-	public async Task<Protocol.CompileInfo> Compile(string? rootDoc = null, bool draft = false, string check = "silent", bool incremental = true, bool stopOnFirstError = false, CancellationToken ct = default)
+	public async Task<Protocol.CompileInfo> Compile(string? rootDoc = null, bool draft = false, string check = "silent", bool incremental = true, bool stopOnFirstError = false, CancellationToken ct = default, string? rootResourcePath = null)
 	{
+		if(rootDoc is not null || rootResourcePath is not null)
+		{
+			if(rootDoc is null)
+			{
+				var info = await GetInfo(cache: true, ct: ct);
+				rootDoc = info.Project.RootFolder.Select(r => r.Lookup(rootResourcePath!)).FirstOrDefault(x => x is not null, null)?.ID
+							?? throw new ArgumentException($"rootResourcePath does not exist: {rootResourcePath}");
+			}
+			else if(rootResourcePath is null)
+			{
+				var info = await GetInfo(cache: true, ct: ct);
+				rootResourcePath = info.Project.RootFolder.SelectMany(r => r.List()).Where(f => f.file.ID == rootDoc!).Select(f => f.path).FirstOrDefault((string?)null)
+							?? throw new ArgumentException($"rootDoc does not exist: {rootDoc}");
+			}
+		}
+
 		var res = await client.PostAsJsonAsync($"project/{ID}/compile?",
-			new{ rootDoc_id = rootDoc, draft, check, incrementalCompilesEnabled = incremental, stopOnFirstError },
+			new{ rootDoc_id = rootDoc, draft, check, incrementalCompilesEnabled = incremental, stopOnFirstError, rootResourcePath },
 			ct);
 
 		HttpStatusException.ThrowUnlessSuccessful(res, "trying to request compilation");
