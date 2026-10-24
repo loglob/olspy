@@ -301,6 +301,10 @@ public static class Protocol
 		int? LatexRuns1,
 		[property: JsonPropertyName("latex-runs-with-errors-1")]
 		int? LatexRunsWithErrors1,
+		[property: JsonPropertyName("latex-runs-2")]
+		int? LatexRuns2,
+		[property: JsonPropertyName("latex-runs-with-errors-2")]
+		int? LatexRunsWithErrors2,
 		[property: JsonPropertyName("pdf-size")]
 		int? PdfSize
 	);
