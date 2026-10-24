@@ -292,7 +292,7 @@ public sealed class Project
 	/// <exception cref="HttpContentException"> If the server returns invalid JSON data </exception>
 	/// <exception cref="HttpRequestException"> If an internal error occurs while making HTTP requests </exception>
 	/// <exception cref="TaskCanceledException"> If the configured HttpTimeout is exceeded </exception>
-	public async Task<Protocol.CompileInfo> Compile(string? rootDoc = null, bool draft = false, string check = "silent", bool incremental = true, bool stopOnFirstError = false, CancellationToken ct = default, string? rootResourcePath = null)
+	public async Task<Protocol.CompileInfo> Compile(string? rootDoc = null, bool draft = false, string? check = "silent", bool incremental = true, bool stopOnFirstError = false, CancellationToken ct = default, string? rootResourcePath = null)
 	{
 		if(rootDoc is not null || rootResourcePath is not null)
 		{
