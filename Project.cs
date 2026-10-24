@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace Olspy;
@@ -37,6 +38,13 @@ public sealed class Project
 	private static readonly Regex ReadOnlyTokenPattern = new("^[a-z]{12}$");
 
 	private static readonly Regex CsrfMetaTag = new("<meta +name=\"ol-csrfToken\" *content=\"([^\"]+)\" *>");
+
+	/// <summary>
+	///  Omits null fields from request bodies, since some endpoints reject explicit nulls for optional fields
+	/// </summary>
+	private static readonly JsonSerializerOptions requestOptions = new(JsonSerializerDefaults.Web) {
+		DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+	};
 
 	private static string getCsrf(string html)
 	{
@@ -304,7 +312,7 @@ public sealed class Project
 
 		var res = await client.PostAsJsonAsync($"project/{ID}/compile?",
 			new{ rootDoc_id = rootDoc, draft, check, incrementalCompilesEnabled = incremental, stopOnFirstError, rootResourcePath },
-			ct);
+			requestOptions, ct);
 
 		HttpStatusException.ThrowUnlessSuccessful(res, "trying to request compilation");
 
