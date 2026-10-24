@@ -44,26 +44,30 @@ public static class Protocol
 		string ID,
 		string Name,
 		LinkedFile? LinkedFileData,
-		DateTime Created
+		DateTime Created,
+		string? Hash
 	) : FileInfo(ID, Name);
 
 	[JsonPolymorphic(TypeDiscriminatorPropertyName = "provider")]
 	[JsonDerivedType(typeof(LinkedProjectFile), "project_file")]
 	[JsonDerivedType(typeof(LinkedOutputFile), "project_output_file")]
 	public abstract record LinkedFile(
-		[property: JsonPropertyName("source_project_id")] string SourceProjectID
+		[property: JsonPropertyName("source_project_id")] string SourceProjectID,
+		DateTime? ImportedAt
 	);
 
 	public record LinkedProjectFile(
 		string SourceProjectID,
+		DateTime? ImportedAt,
 		[property: JsonPropertyName("source_entity_path")] string SourceEntityPath
-	) : LinkedFile(SourceProjectID);
+	) : LinkedFile(SourceProjectID, ImportedAt);
 
 	public record LinkedOutputFile(
 		string SourceProjectID,
+		DateTime? ImportedAt,
 		[property: JsonPropertyName("source_output_file_path")] string SourceOutputFilePath,
 		[property: JsonPropertyName("build_id")] string BUildID
-	) : LinkedFile(SourceProjectID);
+	) : LinkedFile(SourceProjectID, ImportedAt);
 
 	/// <summary>
 	///  A folder
@@ -174,6 +178,8 @@ public static class Protocol
 		bool Templates,
 		bool References,
 		bool TrackChanges,
+		string? AiUsageQuota,
+		bool? OfflineMode,
 		bool ReferencesSearch,
 		bool Mendeley,
 		bool TrackChangesVisible,
@@ -257,6 +263,19 @@ public static class Protocol
 		DateTime? CreatedAt = null
 	);
 
+	/// <summary>
+	///  Provides the compilation result as a packaged archive.
+	/// </summary>
+	/// <param name="Path"> Filename of the results, e.g. 'output.zip'. </param>
+	/// <param name="Url"> A path to the archive, (!)relative to the domain root. </param>
+	/// <param name="Type"> File extension of the archive file. </param>
+	/// <returns></returns>
+	public sealed record OutputFilesArchive(
+		string Path,
+		string Url,
+		string Type
+	);
+
 	/// <param name="LatexmkErrors"> Identical to `LatexRunsWithErrors0` (?) </param>
 	/// <param name="LatexRuns"> Always 0 (?) </param>
 	/// <param name="LatexRunsWithErrors"> Always 0 (?) See `LatexRunsWithErrors0` instead. </param>
@@ -264,6 +283,10 @@ public static class Protocol
 	/// <param name="LatexRunsWithErrors0"> 1 if a successful compilation encountered any recoverable errors, 0 otherwise. </param>
 	/// <param name="PdfSize"> Output PDF file size in bytes, if there is one. Identical to `OutputFile.Size`. </param>
 	public sealed record CompileStats(
+		[property: JsonPropertyName("include-image-optimised")]
+		int? IncludeImageOptimized,
+		[property: JsonPropertyName("include-image-all")]
+		int? IncludeImageAll,
 		[property: JsonPropertyName("latexmk-errors")]
 		int LatexmkErrors,
 		[property: JsonPropertyName("latex-runs")]
@@ -271,9 +294,13 @@ public static class Protocol
 		[property: JsonPropertyName("latex-runs-with-errors")]
 		int LatexRunsWithErrors,
 		[property: JsonPropertyName("latex-runs-0")]
-		int LatexRuns0,
+		int? LatexRuns0,
 		[property: JsonPropertyName("latex-runs-with-errors-0")]
-		int LatexRunsWithErrors0,
+		int? LatexRunsWithErrors0,
+		[property: JsonPropertyName("latex-runs-1")]
+		int? LatexRuns1,
+		[property: JsonPropertyName("latex-runs-with-errors-1")]
+		int? LatexRunsWithErrors1,
 		[property: JsonPropertyName("pdf-size")]
 		int? PdfSize
 	);
@@ -287,6 +314,10 @@ public static class Protocol
 	/// <param name="Total"> The total, end-to-end compile time </param>
 	public sealed record CompileTimings(
 		int Sync,
+		[property: JsonPropertyName("include-image-optimised")]
+		int? IncludeImageOptimized,
+		[property: JsonPropertyName("include-image-all")]
+		int? IncludeImageAll,
 		int Compile,
 		int Output,
 		[property: JsonPropertyName("compileE2E")]
@@ -374,14 +405,17 @@ public static class Protocol
 	/// <param name="OutputFiles"></param>
 	/// <param name="CompileGroup"> Observed values: standard </param>
 	/// <param name="Stats"> Information on compile errors </param>
+	/// <param name="OutputFilesArchive"> Provides an archive of the results. May be absent on older overleaf versions. </param>
 	/// <param name="Timings"></param>
 	/// <returns></returns>
 	public sealed record CompileInfo(
 		CompileStatus Status,
 		OutputFile[] OutputFiles,
+		OutputFilesArchive? OutputFilesArchive,
 		string CompileGroup,
 		CompileStats Stats,
-		CompileTimings Timings
+		CompileTimings Timings,
+		string? OutputUrlPrefix
 	) {
 		/// <summary>
 		///  Determines if a success status was indicated and a single output PDF file was produced
