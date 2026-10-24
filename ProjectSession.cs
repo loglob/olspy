@@ -154,7 +154,17 @@ public sealed class ProjectSession : IAsyncDisposable
 							else if(name != RPC_JOIN_PROJECT)
 								throw new NotImplementedException($"Unhandled server-side EVENT '{name}'");
 
-							var v = args[0].Deserialize<JoinProjectArgs>(JsonOptions)!;
+							JoinProjectArgs v;
+
+							try
+							{
+								v = args[0].Deserialize<JoinProjectArgs>(JsonOptions)!;
+							}
+							catch(JsonException je)
+							{
+								throw new WebSocketException("Failed to parse EVENT packet", args[0], je);
+							}
+
 
 							Project.info = v;
 							joinArgs.Write(v);
